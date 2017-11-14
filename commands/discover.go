@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package commands
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -25,10 +26,9 @@ import (
 	"text/template"
 
 	"github.com/google/subcommands"
-	"golang.org/x/net/context"
 
-	"github.com/Sirupsen/logrus"
 	ps "github.com/kotakanbe/go-pingscanner"
+	"github.com/sirupsen/logrus"
 )
 
 // DiscoverCmd is Subcommand of host discovery mode
@@ -57,6 +57,7 @@ func (p *DiscoverCmd) SetFlags(f *flag.FlagSet) {
 func (p *DiscoverCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	// validate
 	if len(f.Args()) == 0 {
+		logrus.Errorf("Usage: " + p.Usage())
 		return subcommands.ExitUsageError
 	}
 
@@ -65,7 +66,6 @@ func (p *DiscoverCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface
 			CIDR: cidr,
 			PingOptions: []string{
 				"-c1",
-				"-t1",
 			},
 			NumOfConcurrency: 100,
 		}
@@ -87,25 +87,26 @@ func (p *DiscoverCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface
 	return subcommands.ExitSuccess
 }
 
-// Output the tmeplate of config.toml
+// Output the template of config.toml
 func printConfigToml(ips []string) (err error) {
-	const tomlTempale = `
+	const tomlTemplate = `
 [slack]
 hookURL      = "https://hooks.slack.com/services/abc123/defghijklmnopqrstuvwxyz"
+#legacyToken  = "xoxp-11111111111-222222222222-3333333333"
 channel      = "#channel-name"
 #channel      = "${servername}"
 iconEmoji    = ":ghost:"
 authUser     = "username"
 notifyUsers  = ["@username"]
 
-[mail]
-smtpAddr      = "smtp.gmail.com"
-smtpPort      = "465"
+[email]
+smtpAddr      = "smtp.example.com"
+smtpPort      = "587"
 user          = "username"
 password      = "password"
-from          = "from@address.com"
-to            = ["to@address.com"]
-cc            = ["cc@address.com"]
+from          = "from@example.com"
+to            = ["to@example.com"]
+cc            = ["cc@example.com"]
 subjectPrefix = "[vuls]"
 
 [default]
@@ -115,10 +116,13 @@ subjectPrefix = "[vuls]"
 #cpeNames = [
 #  "cpe:/a:rubyonrails:ruby_on_rails:4.2.1",
 #]
-#containers = ["${running}"]
+#dependencyCheckXMLPath = "/tmp/dependency-check-report.xml"
+#ignoreCves = ["CVE-2014-6271"]
 #optional = [
 #    ["key", "value"],
 #]
+#containers = ["${running}"]
+
 
 [servers]
 {{- $names:=  .Names}}
@@ -128,18 +132,26 @@ host         = "{{$ip}}"
 #port        = "22"
 #user        = "root"
 #keyPath     = "/home/username/.ssh/id_rsa"
+#type 		 = "pseudo"
 #cpeNames = [
 #  "cpe:/a:rubyonrails:ruby_on_rails:4.2.1",
 #]
-#containers = ["${running}"]
+#dependencyCheckXMLPath = "/tmp/dependency-check-report.xml"
+#ignoreCves = ["CVE-2014-0160"]
 #optional = [
 #    ["key", "value"],
 #]
+#[servers.{{index $names $i}}.containers]
+#type = "docker" #or "lxd" default: docker
+#includes = ["${running}"]
+#excludes = ["container_name_a", "4aa37a8b63b9"]
+
+
 {{end}}
 
 `
 	var tpl *template.Template
-	if tpl, err = template.New("tempalte").Parse(tomlTempale); err != nil {
+	if tpl, err = template.New("template").Parse(tomlTemplate); err != nil {
 		return
 	}
 
@@ -157,7 +169,7 @@ host         = "{{$ip}}"
 	}
 	a.Names = names
 
-	fmt.Println("# Create config.toml using below and then ./vuls --config=/path/to/config.toml")
+	fmt.Println("# Create config.toml using below and then ./vuls -config=/path/to/config.toml")
 	if err = tpl.Execute(os.Stdout, a); err != nil {
 		return
 	}

@@ -95,7 +95,7 @@ func URLPathParamJoin(baseURL string, paths []string, params map[string]string) 
 
 // ProxyEnv returns shell environment variables to set proxy
 func ProxyEnv() string {
-	httpProxyEnv := "env"
+	httpProxyEnv := ""
 	keys := []string{
 		"http_proxy",
 		"https_proxy",
@@ -109,7 +109,7 @@ func ProxyEnv() string {
 	return httpProxyEnv
 }
 
-// PrependProxyEnv prepends proxy enviroment variable
+// PrependProxyEnv prepends proxy environment variable
 func PrependProxyEnv(cmd string) string {
 	if len(config.Conf.HTTPProxy) == 0 {
 		return cmd
@@ -134,4 +134,16 @@ func Truncate(str string, length int) string {
 		return str[:length]
 	}
 	return str
+}
+
+// Distinct a slice
+func Distinct(ss []string) (distincted []string) {
+	m := map[string]bool{}
+	for _, s := range ss {
+		if _, found := m[s]; !found {
+			m[s] = true
+			distincted = append(distincted, s)
+		}
+	}
+	return
 }

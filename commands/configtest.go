@@ -18,15 +18,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package commands
 
 import (
+	"context"
 	"flag"
-	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/google/subcommands"
-	"golang.org/x/net/context"
 
 	c "github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/scan"
@@ -36,8 +33,13 @@ import (
 // ConfigtestCmd is Subcommand
 type ConfigtestCmd struct {
 	configPath     string
+	logDir         string
 	askKeyPassword bool
-	sshExternal    bool
+	containersOnly bool
+	deep           bool
+	sshNative      bool
+	httpProxy      string
+	timeoutSec     int
 
 	debug bool
 }
@@ -52,12 +54,17 @@ func (*ConfigtestCmd) Synopsis() string { return "Test configuration" }
 func (*ConfigtestCmd) Usage() string {
 	return `configtest:
 	configtest
-		        [-config=/path/to/config.toml]
-	        	[-ask-key-password]
-	        	[-ssh-external]
-		        [-debug]
+			[-deep]
+			[-config=/path/to/config.toml]
+			[-log-dir=/path/to/log]
+			[-ask-key-password]
+			[-timeout=300]
+			[-ssh-external]
+			[-containers-only]
+			[-http-proxy=http://192.168.0.1:8080]
+			[-debug]
 
-		        [SERVER]...
+			[SERVER]...
 `
 }
 
@@ -67,7 +74,12 @@ func (p *ConfigtestCmd) SetFlags(f *flag.FlagSet) {
 	defaultConfPath := filepath.Join(wd, "config.toml")
 	f.StringVar(&p.configPath, "config", defaultConfPath, "/path/to/toml")
 
+	defaultLogDir := util.GetDefaultLogDir()
+	f.StringVar(&p.logDir, "log-dir", defaultLogDir, "/path/to/log")
+
 	f.BoolVar(&p.debug, "debug", false, "debug mode")
+
+	f.IntVar(&p.timeoutSec, "timeout", 5*60, "Timeout(Sec)")
 
 	f.BoolVar(
 		&p.askKeyPassword,
@@ -76,51 +88,60 @@ func (p *ConfigtestCmd) SetFlags(f *flag.FlagSet) {
 		"Ask ssh privatekey password before scanning",
 	)
 
+	f.BoolVar(&p.deep, "deep", false, "Config test for deep scan mode")
+
+	f.StringVar(
+		&p.httpProxy,
+		"http-proxy",
+		"",
+		"http://proxy-url:port (default: empty)",
+	)
+
 	f.BoolVar(
-		&p.sshExternal,
-		"ssh-external",
+		&p.sshNative,
+		"ssh-native-insecure",
 		false,
-		"Use external ssh command. Default: Use the Go native implementation")
+		"Use Native Go implementation of SSH. Default: Use the external command")
+
+	f.BoolVar(
+		&p.containersOnly,
+		"containers-only",
+		false,
+		"Test containers only. Default: Test both of hosts and containers")
 }
 
 // Execute execute
 func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+	// Setup Logger
+	c.Conf.Debug = p.debug
+	c.Conf.LogDir = p.logDir
+	util.Log = util.NewCustomLogger(c.ServerInfo{})
 
 	var keyPass string
 	var err error
 	if p.askKeyPassword {
 		prompt := "SSH key password: "
 		if keyPass, err = getPasswd(prompt); err != nil {
-			logrus.Error(err)
+			util.Log.Error(err)
 			return subcommands.ExitFailure
 		}
 	}
 
-	c.Conf.Debug = p.debug
-	c.Conf.SSHExternal = p.sshExternal
-
 	err = c.Load(p.configPath, keyPass)
 	if err != nil {
-		logrus.Errorf("Error loading %s, %s", p.configPath, err)
+		util.Log.Errorf("Error loading %s, %s", p.configPath, err)
+		util.Log.Errorf("If you update Vuls and get this error, there may be incompatible changes in config.toml")
+		util.Log.Errorf("Please check README: https://github.com/future-architect/vuls#configuration")
 		return subcommands.ExitUsageError
 	}
+	c.Conf.SSHNative = p.sshNative
+	c.Conf.HTTPProxy = p.httpProxy
+	c.Conf.ContainersOnly = p.containersOnly
+	c.Conf.Deep = p.deep
 
 	var servernames []string
 	if 0 < len(f.Args()) {
 		servernames = f.Args()
-	} else {
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) == 0 {
-			bytes, err := ioutil.ReadAll(os.Stdin)
-			if err != nil {
-				logrus.Errorf("Failed to read stdin: %s", err)
-				return subcommands.ExitFailure
-			}
-			fields := strings.Fields(string(bytes))
-			if 0 < len(fields) {
-				servernames = fields
-			}
-		}
 	}
 
 	target := make(map[string]c.ServerInfo)
@@ -134,7 +155,7 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 			}
 		}
 		if !found {
-			logrus.Errorf("%s is not in config", arg)
+			util.Log.Errorf("%s is not in config", arg)
 			return subcommands.ExitUsageError
 		}
 	}
@@ -142,25 +163,23 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 		c.Conf.Servers = target
 	}
 
-	// logger
-	Log := util.NewCustomLogger(c.ServerInfo{})
-
-	Log.Info("Validating Config...")
-	if !c.Conf.Validate() {
+	util.Log.Info("Validating config...")
+	if !c.Conf.ValidateOnConfigtest() {
 		return subcommands.ExitUsageError
 	}
 
-	Log.Info("Detecting Server/Contianer OS... ")
-	if err := scan.InitServers(Log); err != nil {
-		Log.Errorf("Failed to init servers: %s", err)
+	util.Log.Info("Detecting Server/Container OS... ")
+	if err := scan.InitServers(p.timeoutSec); err != nil {
+		util.Log.Errorf("Failed to init servers: %s", err)
 		return subcommands.ExitFailure
 	}
 
-	Log.Info("Checking sudo configuration... ")
-	if err := scan.CheckIfSudoNoPasswd(Log); err != nil {
-		Log.Errorf("Failed to sudo with nopassword via SSH. Define NOPASSWD in /etc/sudoers on target servers. err: %s", err)
-		return subcommands.ExitFailure
-	}
+	util.Log.Info("Checking dependencies...")
+	scan.CheckDependencies(p.timeoutSec)
+
+	util.Log.Info("Checking sudo settings...")
+	scan.CheckIfSudoNoPasswd(p.timeoutSec)
+
 	scan.PrintSSHableServerNames()
 	return subcommands.ExitSuccess
 }

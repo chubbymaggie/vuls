@@ -22,10 +22,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/boltdb/bolt"
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
+	"github.com/sirupsen/logrus"
 )
 
 const path = "/tmp/vuls-test-cache-11111111.db"
@@ -37,8 +37,8 @@ var meta = Meta{
 		Family:  "ubuntu",
 		Release: "16.04",
 	},
-	Packs: []models.PackageInfo{
-		{
+	Packs: models.Packages{
+		"apt": {
 			Name:    "apt",
 			Version: "1",
 		},
@@ -90,8 +90,11 @@ func TestEnsureBuckets(t *testing.T) {
 	if !found {
 		t.Errorf("Not Found in meta")
 	}
-	if !reflect.DeepEqual(meta, m) {
+	if meta.Name != m.Name || meta.Distro != m.Distro {
 		t.Errorf("expected %v, actual %v", meta, m)
+	}
+	if !reflect.DeepEqual(meta.Packs, m.Packs) {
+		t.Errorf("expected %v, actual %v", meta.Packs, m.Packs)
 	}
 	if err := DB.Close(); err != nil {
 		t.Errorf("Failed to close bolt: %s", err)

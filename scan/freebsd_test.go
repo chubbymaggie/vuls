@@ -12,7 +12,7 @@ import (
 func TestParsePkgVersion(t *testing.T) {
 	var tests = []struct {
 		in       string
-		expected []models.PackageInfo
+		expected models.Packages
 	}{
 		{
 			`Updating FreeBSD repository catalogue...
@@ -21,26 +21,31 @@ All repositories are up-to-date.
 bash-4.2.45                        <   needs updating (remote has 4.3.42_1)
 gettext-0.18.3.1                   <   needs updating (remote has 0.19.7)
 tcl84-8.4.20_2,1                   =   up-to-date with remote
+ntp-4.2.8p8_1                      >   succeeds port (port has 4.2.8p6)
 teTeX-base-3.0_25                  ?   orphaned: print/teTeX-base`,
 
-			[]models.PackageInfo{
-				{
+			models.Packages{
+				"bash": {
 					Name:       "bash",
 					Version:    "4.2.45",
 					NewVersion: "4.3.42_1",
 				},
-				{
+				"gettext": {
 					Name:       "gettext",
 					Version:    "0.18.3.1",
 					NewVersion: "0.19.7",
 				},
-				{
+				"tcl84": {
 					Name:    "tcl84",
 					Version: "8.4.20_2,1",
 				},
-				{
+				"teTeX-base": {
 					Name:    "teTeX-base",
 					Version: "3.0_25",
+				},
+				"ntp": {
+					Name:    "ntp",
+					Version: "4.2.8p8_1",
 				},
 			},
 		},
@@ -139,17 +144,17 @@ WWW: https://vuxml.FreeBSD.org/freebsd/ab3e98d9-8175-11e4-907d-d050992ecde8.html
 
 	d := newBsd(config.ServerInfo{})
 	for _, tt := range tests {
-		aName, aCveIDs, aVunlnID := d.parseBlock(tt.in)
+		aName, aCveIDs, aVulnID := d.parseBlock(tt.in)
 		if tt.name != aName {
-			t.Errorf("expected vulnID: %s, actual %s", tt.vulnID, aVunlnID)
+			t.Errorf("expected vulnID: %s, actual %s", tt.vulnID, aVulnID)
 		}
 		for i := range tt.cveIDs {
 			if tt.cveIDs[i] != aCveIDs[i] {
 				t.Errorf("expected cveID: %s, actual %s", tt.cveIDs[i], aCveIDs[i])
 			}
 		}
-		if tt.vulnID != aVunlnID {
-			t.Errorf("expected vulnID: %s, actual %s", tt.vulnID, aVunlnID)
+		if tt.vulnID != aVulnID {
+			t.Errorf("expected vulnID: %s, actual %s", tt.vulnID, aVulnID)
 		}
 	}
 }
