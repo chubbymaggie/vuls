@@ -94,6 +94,8 @@ var kernelRelatedPackNames = map[string]bool{
 	"kernel-tools":            true,
 	"kernel-tools-libs":       true,
 	"kernel-tools-libs-devel": true,
+	"perf":        true,
+	"python-perf": true,
 }
 
 func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
@@ -110,8 +112,14 @@ func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
 			}
 		} else {
 			cveContents := vinfo.CveContents
-			if _, ok := vinfo.CveContents[ctype]; ok {
-				util.Log.Debugf("%s OVAL will be overwritten", cve.CveID)
+			if v, ok := vinfo.CveContents[ctype]; ok {
+				if v.LastModified.After(ovalContent.LastModified) {
+					util.Log.Debugf("%s, OvalID: %s ignroed: ",
+						cve.CveID, defPacks.def.ID)
+					continue
+				} else {
+					util.Log.Debugf("%s OVAL will be overwritten", cve.CveID)
+				}
 			} else {
 				util.Log.Debugf("%s also detected by OVAL", cve.CveID)
 				cveContents = models.CveContents{}
@@ -129,7 +137,7 @@ func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
 			notFixedYet, _ := defPacks.actuallyAffectedPackNames[pack.Name]
 			defPacks.actuallyAffectedPackNames[pack.Name] = notFixedYet
 		}
-		vinfo.AffectedPackages = defPacks.toPackStatuses(r.Family, r.Packages)
+		vinfo.AffectedPackages = defPacks.toPackStatuses(r.Family)
 		vinfo.AffectedPackages.Sort()
 		r.ScannedCves[cve.CveID] = vinfo
 	}
@@ -236,7 +244,7 @@ func NewCentOS() CentOS {
 	}
 }
 
-// Oracle is the interface for CentOS OVAL
+// Oracle is the interface for Oracle OVAL
 type Oracle struct {
 	RedHatBase
 }

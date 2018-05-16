@@ -40,6 +40,8 @@ type ScanResult struct {
 	Release     string
 	Container   Container
 	Platform    Platform
+	IPv4Addrs   []string // only global unicast address (https://golang.org/pkg/net/#IP.IsGlobalUnicast)
+	IPv6Addrs   []string // only global unicast address (https://golang.org/pkg/net/#IP.IsGlobalUnicast)
 
 	// Scanned Vulns by SSH scan + CPE + OVAL
 	ScannedCves VulnInfos
@@ -144,7 +146,7 @@ func (r ScanResult) ServerInfo() string {
 	)
 }
 
-// ServerInfoTui returns server infromation for TUI sidebar
+// ServerInfoTui returns server information for TUI sidebar
 func (r ScanResult) ServerInfoTui() string {
 	if len(r.Container.ContainerID) == 0 {
 		line := fmt.Sprintf("%s (%s%s)",

@@ -36,12 +36,16 @@ type ConfigtestCmd struct {
 	logDir         string
 	askKeyPassword bool
 	containersOnly bool
-	deep           bool
 	sshNative      bool
 	httpProxy      string
 	timeoutSec     int
 
+	fast    bool
+	offline bool
+	deep    bool
+
 	debug bool
+	vvv   bool
 }
 
 // Name return subcommand name
@@ -54,6 +58,8 @@ func (*ConfigtestCmd) Synopsis() string { return "Test configuration" }
 func (*ConfigtestCmd) Usage() string {
 	return `configtest:
 	configtest
+			[-fast]
+			[-offline]
 			[-deep]
 			[-config=/path/to/config.toml]
 			[-log-dir=/path/to/log]
@@ -63,6 +69,7 @@ func (*ConfigtestCmd) Usage() string {
 			[-containers-only]
 			[-http-proxy=http://192.168.0.1:8080]
 			[-debug]
+			[-vvv]
 
 			[SERVER]...
 `
@@ -88,6 +95,18 @@ func (p *ConfigtestCmd) SetFlags(f *flag.FlagSet) {
 		"Ask ssh privatekey password before scanning",
 	)
 
+	f.BoolVar(
+		&p.fast,
+		"fast",
+		false,
+		"Config test for online fast scan mode")
+
+	f.BoolVar(
+		&p.offline,
+		"offline",
+		false,
+		"Config test for offline scan mode")
+
 	f.BoolVar(&p.deep, "deep", false, "Config test for deep scan mode")
 
 	f.StringVar(
@@ -108,6 +127,8 @@ func (p *ConfigtestCmd) SetFlags(f *flag.FlagSet) {
 		"containers-only",
 		false,
 		"Test containers only. Default: Test both of hosts and containers")
+
+	f.BoolVar(&p.vvv, "vvv", false, "ssh -vvv")
 }
 
 // Execute execute
@@ -116,6 +137,11 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 	c.Conf.Debug = p.debug
 	c.Conf.LogDir = p.logDir
 	util.Log = util.NewCustomLogger(c.ServerInfo{})
+
+	if err := mkdirDotVuls(); err != nil {
+		util.Log.Errorf("Failed to create .vuls: %s", err)
+		return subcommands.ExitUsageError
+	}
 
 	var keyPass string
 	var err error
@@ -137,7 +163,14 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 	c.Conf.SSHNative = p.sshNative
 	c.Conf.HTTPProxy = p.httpProxy
 	c.Conf.ContainersOnly = p.containersOnly
+
+	c.Conf.Fast = p.fast
+	c.Conf.Offline = p.offline
 	c.Conf.Deep = p.deep
+	if !(c.Conf.Fast || c.Conf.Offline || c.Conf.Deep) {
+		c.Conf.Fast = true
+	}
+	c.Conf.Vvv = p.vvv
 
 	var servernames []string
 	if 0 < len(f.Args()) {

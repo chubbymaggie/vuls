@@ -44,6 +44,8 @@ type osTypeInterface interface {
 	checkDependencies() error
 	checkIfSudoNoPasswd() error
 
+	preCure() error
+	postScan() error
 	scanPackages() error
 	convertToModel() models.ScanResult
 
@@ -103,6 +105,11 @@ func detectOS(c config.ServerInfo) (osType osTypeInterface) {
 
 	if itsMe, osType = detectFreebsd(c); itsMe {
 		util.Log.Debugf("FreeBSD. Host: %s:%s", c.Host, c.Port)
+		return
+	}
+
+	if itsMe, osType = detectAlpine(c); itsMe {
+		util.Log.Debugf("Alpine. Host: %s:%s", c.Host, c.Port)
 		return
 	}
 
@@ -449,8 +456,14 @@ func setupChangelogCache() error {
 
 func scanVulns(jsonDir string, scannedAt time.Time, timeoutSec int) error {
 	var results models.ScanResults
-	parallelExec(func(o osTypeInterface) error {
-		return o.scanPackages()
+	parallelExec(func(o osTypeInterface) (err error) {
+		if err = o.preCure(); err != nil {
+			return err
+		}
+		if err = o.scanPackages(); err != nil {
+			return err
+		}
+		return o.postScan()
 	}, timeoutSec)
 
 	for _, s := range append(servers, errServers...) {

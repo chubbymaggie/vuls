@@ -19,7 +19,6 @@ package report
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	c "github.com/future-architect/vuls/config"
@@ -35,7 +34,7 @@ const (
 
 // FillCveInfos fills CVE Detailed Information
 func FillCveInfos(rs []models.ScanResult, dir string) ([]models.ScanResult, error) {
-	var filled []models.ScanResult
+	var filledResults []models.ScanResult
 	reportedAt := time.Now()
 	for _, r := range rs {
 		if c.Conf.RefreshCve || needToRefreshCve(r) {
@@ -51,34 +50,34 @@ func FillCveInfos(rs []models.ScanResult, dir string) ([]models.ScanResult, erro
 			if err := overwriteJSONFile(dir, r); err != nil {
 				return nil, fmt.Errorf("Failed to write JSON: %s", err)
 			}
-			filled = append(filled, r)
+			filledResults = append(filledResults, r)
 		} else {
 			util.Log.Debugf("No need to refresh")
-			filled = append(filled, r)
+			filledResults = append(filledResults, r)
 		}
 	}
 
 	if c.Conf.Diff {
-		previous, err := loadPrevious(filled)
+		prevs, err := loadPrevious(filledResults)
 		if err != nil {
 			return nil, err
 		}
 
-		diff, err := diff(filled, previous)
+		diff, err := diff(filledResults, prevs)
 		if err != nil {
 			return nil, err
 		}
-		filled = []models.ScanResult{}
+		filledResults = []models.ScanResult{}
 		for _, r := range diff {
 			if err := fillCveDetail(&r); err != nil {
 				return nil, err
 			}
-			filled = append(filled, r)
+			filledResults = append(filledResults, r)
 		}
 	}
 
 	filtered := []models.ScanResult{}
-	for _, r := range filled {
+	for _, r := range filledResults {
 		r = r.FilterByCvssOver(c.Conf.CvssScoreOver)
 		r = r.FilterIgnoreCves(c.Conf.Servers[r.ServerName].IgnoreCves)
 		r = r.FilterUnfixed()
@@ -181,21 +180,28 @@ func FillWithOval(r *models.ScanResult) (err error) {
 		// TODO other suse family
 		ovalClient = oval.NewSUSE()
 		ovalFamily = c.SUSEEnterpriseServer
+	case c.Alpine:
+		ovalClient = oval.NewAlpine()
+		ovalFamily = c.Alpine
 	case c.Amazon, c.Raspbian, c.FreeBSD, c.Windows:
 		return nil
 	case c.ServerTypePseudo:
 		return nil
 	default:
+		if r.Family == "" {
+			return fmt.Errorf("Probably an error occurred during scanning. Check the error message")
+		}
 		return fmt.Errorf("OVAL for %s is not implemented yet", r.Family)
 	}
 
+	util.Log.Debugf("Check whether oval is already fetched: %s %s",
+		ovalFamily, r.Release)
 	ok, err := ovalClient.CheckIfOvalFetched(ovalFamily, r.Release)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		major := strings.Split(r.Release, ".")[0]
-		util.Log.Warnf("OVAL entries of %s %s are not found. It's recommended to use OVAL to improve scanning accuracy. For details, see https://github.com/kotakanbe/goval-dictionary#usage , Then report with --ovaldb-path or --ovaldb-url flag", ovalFamily, major)
+		util.Log.Warnf("OVAL entries of %s %s are not found. It's recommended to use OVAL to improve scanning accuracy. For details, see https://github.com/kotakanbe/goval-dictionary#usage , Then report with --ovaldb-path or --ovaldb-url flag", ovalFamily, r.Release)
 		return nil
 	}
 

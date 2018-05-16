@@ -43,10 +43,13 @@ type ScanCmd struct {
 	httpProxy      string
 	askKeyPassword bool
 	containersOnly bool
+	fast           bool
+	offline        bool
 	deep           bool
 	skipBroken     bool
 	sshNative      bool
 	pipe           bool
+	vvv            bool
 	timeoutSec     int
 	scanTimeoutSec int
 }
@@ -61,6 +64,8 @@ func (*ScanCmd) Synopsis() string { return "Scan vulnerabilities" }
 func (*ScanCmd) Usage() string {
 	return `scan:
 	scan
+		[-fast]
+		[-offline]
 		[-deep]
 		[-config=/path/to/config.toml]
 		[-results-dir=/path/to/results]
@@ -75,6 +80,7 @@ func (*ScanCmd) Usage() string {
 		[-timeout-scan=7200]
 		[-debug]
 		[-pipe]
+		[-vvv]
 
 		[SERVER]...
 `
@@ -135,6 +141,18 @@ func (p *ScanCmd) SetFlags(f *flag.FlagSet) {
 	)
 
 	f.BoolVar(
+		&p.fast,
+		"fast",
+		false,
+		"Online fast scan mode.")
+
+	f.BoolVar(
+		&p.offline,
+		"offline",
+		false,
+		"Offline scan mode. Unable to get updatable packages information.")
+
+	f.BoolVar(
 		&p.deep,
 		"deep",
 		false,
@@ -145,6 +163,8 @@ func (p *ScanCmd) SetFlags(f *flag.FlagSet) {
 		"pipe",
 		false,
 		"Use stdin via PIPE")
+
+	f.BoolVar(&p.vvv, "vvv", false, "ssh -vvv")
 
 	f.IntVar(
 		&p.timeoutSec,
@@ -163,11 +183,15 @@ func (p *ScanCmd) SetFlags(f *flag.FlagSet) {
 
 // Execute execute
 func (p *ScanCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-
 	// Setup Logger
 	c.Conf.Debug = p.debug
 	c.Conf.LogDir = p.logDir
 	util.Log = util.NewCustomLogger(c.ServerInfo{})
+
+	if err := mkdirDotVuls(); err != nil {
+		util.Log.Errorf("Failed to create .vuls: %s", err)
+		return subcommands.ExitUsageError
+	}
 
 	var keyPass string
 	var err error
@@ -191,6 +215,7 @@ func (p *ScanCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 	util.Log.Infof("config: %s", p.configPath)
 
 	c.Conf.Pipe = p.pipe
+	c.Conf.Vvv = p.vvv
 	var servernames []string
 	if 0 < len(f.Args()) {
 		servernames = f.Args()
@@ -231,8 +256,14 @@ func (p *ScanCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 	c.Conf.SSHNative = p.sshNative
 	c.Conf.HTTPProxy = p.httpProxy
 	c.Conf.ContainersOnly = p.containersOnly
-	c.Conf.Deep = p.deep
 	c.Conf.SkipBroken = p.skipBroken
+
+	c.Conf.Fast = p.fast
+	c.Conf.Offline = p.offline
+	c.Conf.Deep = p.deep
+	if !(c.Conf.Fast || c.Conf.Offline || c.Conf.Deep) {
+		c.Conf.Fast = true
+	}
 
 	util.Log.Info("Validating config...")
 	if !c.Conf.ValidateOnScan() {

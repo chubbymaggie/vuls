@@ -30,7 +30,7 @@ import (
 type TOMLLoader struct {
 }
 
-// Load load the configuraiton TOML file specified by path arg.
+// Load load the configuration TOML file specified by path arg.
 func (c TOMLLoader) Load(pathToToml, keyPass string) error {
 	if Conf.Debug {
 		log.SetLevel(log.DebugLevel)
@@ -44,6 +44,10 @@ func (c TOMLLoader) Load(pathToToml, keyPass string) error {
 
 	Conf.EMail = conf.EMail
 	Conf.Slack = conf.Slack
+	Conf.Stride = conf.Stride
+	Conf.HipChat = conf.HipChat
+	Conf.ChatWork = conf.ChatWork
+	Conf.Syslog = conf.Syslog
 
 	d := conf.Default
 	Conf.Default = d

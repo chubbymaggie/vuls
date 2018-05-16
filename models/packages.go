@@ -21,6 +21,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"github.com/future-architect/vuls/config"
 )
 
 // Packages is Map of Package
@@ -62,13 +64,17 @@ func (ps Packages) Merge(other Packages) Packages {
 
 // FormatUpdatablePacksSummary returns a summary of updatable packages
 func (ps Packages) FormatUpdatablePacksSummary() string {
+	if config.Conf.Offline {
+		return fmt.Sprintf("%d installed", len(ps))
+	}
+
 	nUpdatable := 0
 	for _, p := range ps {
 		if p.NewVersion != "" {
 			nUpdatable++
 		}
 	}
-	return fmt.Sprintf("%d updatable packages", nUpdatable)
+	return fmt.Sprintf("%d installed, %d updatable", len(ps), nUpdatable)
 }
 
 // FindOne search a element by name-newver-newrel-arch
@@ -141,7 +147,7 @@ func (p Package) FormatChangelog() string {
 	case FailedToGetChangelog:
 		clog = "No changelogs"
 	case FailedToFindVersionInChangelog:
-		clog = "Failed to parse changelogs. For detials, check yourself"
+		clog = "Failed to parse changelogs. For details, check yourself"
 	}
 	buf = append(buf, packVer, delim.String(), clog)
 	return strings.Join(buf, "\n")

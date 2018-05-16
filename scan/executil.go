@@ -26,6 +26,7 @@ import (
 	"net"
 	"os"
 	ex "os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -36,11 +37,13 @@ import (
 	"github.com/cenkalti/backoff"
 	conf "github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/util"
+	homedir "github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
 )
 
 type execResult struct {
 	Servername string
+	Container  conf.Container
 	Host       string
 	Port       string
 	Cmd        string
@@ -51,9 +54,16 @@ type execResult struct {
 }
 
 func (s execResult) String() string {
+	sname := ""
+	if s.Container.ContainerID == "" {
+		sname = s.Servername
+	} else {
+		sname = s.Container.Name + "@" + s.Servername
+	}
+
 	return fmt.Sprintf(
 		"execResult: servername: %s\n  cmd: %s\n  exitstatus: %d\n  stdout: %s\n  stderr: %s\n  err: %s",
-		s.Servername, s.Cmd, s.ExitStatus, s.Stdout, s.Stderr, s.Error)
+		sname, s.Cmd, s.ExitStatus, s.Stdout, s.Stderr, s.Error)
 }
 
 func (s execResult) isSuccess(expectedStatusCodes ...int) bool {
@@ -167,10 +177,11 @@ func exec(c conf.ServerInfo, cmd string, sudo bool, log ...*logrus.Entry) (resul
 func localExec(c conf.ServerInfo, cmdstr string, sudo bool) (result execResult) {
 	cmdstr = decorateCmd(c, cmdstr, sudo)
 	var cmd *ex.Cmd
-	if c.Distro.Family == conf.FreeBSD {
+	switch c.Distro.Family {
+	// case conf.FreeBSD, conf.Alpine, conf.Debian:
+	// cmd = ex.Command("/bin/sh", "-c", cmdstr)
+	default:
 		cmd = ex.Command("/bin/sh", "-c", cmdstr)
-	} else {
-		cmd = ex.Command("/bin/bash", "-c", cmdstr)
 	}
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
@@ -196,6 +207,7 @@ func localExec(c conf.ServerInfo, cmdstr string, sudo bool) (result execResult) 
 
 func sshExecNative(c conf.ServerInfo, cmd string, sudo bool) (result execResult) {
 	result.Servername = c.ServerName
+	result.Container = c.Container
 	result.Host = c.Host
 	result.Port = c.Port
 
@@ -259,27 +271,31 @@ func sshExecExternal(c conf.ServerInfo, cmd string, sudo bool) (result execResul
 		return sshExecNative(c, cmd, sudo)
 	}
 
+	home, err := homedir.Dir()
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get HOME directory: %s", err)
+		result.Stderr = msg
+		result.ExitStatus = 997
+		return
+	}
+	controlPath := filepath.Join(home, ".vuls", `controlmaster-%r-`+c.ServerName+`.%p`)
+
 	defaultSSHArgs := []string{
 		"-tt",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "LogLevel=quiet",
 		"-o", "ConnectionAttempts=3",
 		"-o", "ConnectTimeout=10",
-		"-o", "ControlMaster=no",
-		"-o", "ControlPath=none",
-
-		// TODO ssh session multiplexing
-		//  "-o", "ControlMaster=auto",
-		//  "-o", `ControlPath=~/.ssh/controlmaster-%r-%h.%p`,
-		//  "-o", "Controlpersist=30m",
+		"-o", "ControlMaster=auto",
+		"-o", fmt.Sprintf("ControlPath=%s", controlPath),
+		"-o", "Controlpersist=10m",
 	}
+	if conf.Conf.Vvv {
+		defaultSSHArgs = append(defaultSSHArgs, "-vvv")
+	}
+
 	args := append(defaultSSHArgs, fmt.Sprintf("%s@%s", c.User, c.Host))
 	args = append(args, "-p", c.Port)
-
-	//  if conf.Conf.Debug {
-	//      args = append(args, "-v")
-	//  }
-
 	if 0 < len(c.KeyPath) {
 		args = append(args, "-i", c.KeyPath)
 		args = append(args, "-o", "PasswordAuthentication=no")
@@ -311,6 +327,7 @@ func sshExecExternal(c conf.ServerInfo, cmd string, sudo bool) (result execResul
 	result.Stdout = stdoutBuf.String()
 	result.Stderr = stderrBuf.String()
 	result.Servername = c.ServerName
+	result.Container = c.Container
 	result.Host = c.Host
 	result.Port = c.Port
 	result.Cmd = fmt.Sprintf("%s %s", sshBinaryPath, strings.Join(args, " "))
@@ -322,6 +339,16 @@ func getSSHLogger(log ...*logrus.Entry) *logrus.Entry {
 		return util.NewCustomLogger(conf.ServerInfo{})
 	}
 	return log[0]
+}
+
+func dockerShell(family string) string {
+	switch family {
+	// case conf.Alpine, conf.Debian:
+	// return "/bin/sh"
+	default:
+		// return "/bin/bash"
+		return "/bin/sh"
+	}
 }
 
 func decorateCmd(c conf.ServerInfo, cmd string, sudo bool) string {
@@ -341,9 +368,19 @@ func decorateCmd(c conf.ServerInfo, cmd string, sudo bool) string {
 	if c.IsContainer() {
 		switch c.Containers.Type {
 		case "", "docker":
-			cmd = fmt.Sprintf(`docker exec --user 0 %s /bin/bash -c '%s'`, c.Container.ContainerID, cmd)
+			cmd = fmt.Sprintf(`docker exec --user 0 %s %s -c '%s'`,
+				c.Container.ContainerID, dockerShell(c.Distro.Family), cmd)
 		case "lxd":
-			cmd = fmt.Sprintf(`lxc exec %s -- /bin/bash -c '%s'`, c.Container.Name, cmd)
+			// If the user belong to the "lxd" group, root privilege is not required.
+			cmd = fmt.Sprintf(`lxc exec %s -- %s -c '%s'`,
+				c.Container.Name, dockerShell(c.Distro.Family), cmd)
+		case "lxc":
+			cmd = fmt.Sprintf(`lxc-attach -n %s 2>/dev/null -- %s -c '%s'`,
+				c.Container.Name, dockerShell(c.Distro.Family), cmd)
+			// LXC required root privilege
+			if c.User != "root" {
+				cmd = fmt.Sprintf("sudo -S %s", cmd)
+			}
 		}
 	}
 	//  cmd = fmt.Sprintf("set -x; %s", cmd)
