@@ -1,20 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package scan
 
 import (
@@ -33,6 +16,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/xerrors"
 
 	"github.com/cenkalti/backoff"
 	conf "github.com/future-architect/vuls/config"
@@ -124,7 +108,7 @@ func parallelExec(fn func(osTypeInterface) error, timeoutSec ...int) {
 			if len(s.getErrs()) == 0 {
 				successes = append(successes, s)
 			} else {
-				util.Log.Errorf("Error: %s, err: %s",
+				util.Log.Errorf("Error on %s, err: %+v",
 					s.getServerInfo().GetServerName(), s.getErrs())
 				errServers = append(errServers, s)
 			}
@@ -145,10 +129,10 @@ func parallelExec(fn func(osTypeInterface) error, timeoutSec ...int) {
 				}
 			}
 			if !found {
-				msg := fmt.Sprintf("Timed out: %s",
+				err := xerrors.Errorf("Timed out: %s",
 					s.getServerInfo().GetServerName())
-				util.Log.Errorf(msg)
-				s.setErrs([]error{fmt.Errorf(msg)})
+				util.Log.Errorf("%+v", err)
+				s.setErrs([]error{err})
 				errServers = append(errServers, s)
 			}
 		}
@@ -161,8 +145,7 @@ func exec(c conf.ServerInfo, cmd string, sudo bool, log ...*logrus.Entry) (resul
 	logger := getSSHLogger(log...)
 	logger.Debugf("Executing... %s", strings.Replace(cmd, "\n", "", -1))
 
-	if c.Port == "local" &&
-		(c.Host == "127.0.0.1" || c.Host == "localhost") {
+	if isLocalExec(c.Port, c.Host) {
 		result = localExec(c, cmd, sudo)
 	} else if conf.Conf.SSHNative {
 		result = sshExecNative(c, cmd, sudo)
@@ -172,6 +155,10 @@ func exec(c conf.ServerInfo, cmd string, sudo bool, log ...*logrus.Entry) (resul
 
 	logger.Debug(result)
 	return
+}
+
+func isLocalExec(port, host string) bool {
+	return port == "local" && (host == "127.0.0.1" || host == "localhost")
 }
 
 func localExec(c conf.ServerInfo, cmdstr string, sudo bool) (result execResult) {
@@ -222,8 +209,8 @@ func sshExecNative(c conf.ServerInfo, cmd string, sudo bool) (result execResult)
 
 	var session *ssh.Session
 	if session, err = client.NewSession(); err != nil {
-		result.Error = fmt.Errorf(
-			"Failed to create a new session. servername: %s, err: %s",
+		result.Error = xerrors.Errorf(
+			"Failed to create a new session. servername: %s, err: %w",
 			c.ServerName, err)
 		result.ExitStatus = 999
 		return
@@ -237,8 +224,8 @@ func sshExecNative(c conf.ServerInfo, cmd string, sudo bool) (result execResult)
 		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
 	}
 	if err = session.RequestPty("xterm", 400, 1000, modes); err != nil {
-		result.Error = fmt.Errorf(
-			"Failed to request for pseudo terminal. servername: %s, err: %s",
+		result.Error = xerrors.Errorf(
+			"Failed to request for pseudo terminal. servername: %s, err: %w",
 			c.ServerName, err)
 		result.ExitStatus = 999
 		return
@@ -271,25 +258,29 @@ func sshExecExternal(c conf.ServerInfo, cmd string, sudo bool) (result execResul
 		return sshExecNative(c, cmd, sudo)
 	}
 
-	home, err := homedir.Dir()
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get HOME directory: %s", err)
-		result.Stderr = msg
-		result.ExitStatus = 997
-		return
-	}
-	controlPath := filepath.Join(home, ".vuls", `controlmaster-%r-`+c.ServerName+`.%p`)
+	defaultSSHArgs := []string{"-tt"}
 
-	defaultSSHArgs := []string{
-		"-tt",
-		"-o", "StrictHostKeyChecking=yes",
-		"-o", "LogLevel=quiet",
-		"-o", "ConnectionAttempts=3",
-		"-o", "ConnectTimeout=10",
-		"-o", "ControlMaster=auto",
-		"-o", fmt.Sprintf("ControlPath=%s", controlPath),
-		"-o", "Controlpersist=10m",
+	if !conf.Conf.SSHConfig {
+		home, err := homedir.Dir()
+		if err != nil {
+			msg := fmt.Sprintf("Failed to get HOME directory: %s", err)
+			result.Stderr = msg
+			result.ExitStatus = 997
+			return
+		}
+		controlPath := filepath.Join(home, ".vuls", `controlmaster-%r-`+c.ServerName+`.%p`)
+
+		defaultSSHArgs = append(defaultSSHArgs,
+			"-o", "StrictHostKeyChecking=yes",
+			"-o", "LogLevel=quiet",
+			"-o", "ConnectionAttempts=3",
+			"-o", "ConnectTimeout=10",
+			"-o", "ControlMaster=auto",
+			"-o", fmt.Sprintf("ControlPath=%s", controlPath),
+			"-o", "Controlpersist=10m",
+		)
 	}
+
 	if conf.Conf.Vvv {
 		defaultSSHArgs = append(defaultSSHArgs, "-vvv")
 	}
@@ -366,7 +357,7 @@ func decorateCmd(c conf.ServerInfo, cmd string, sudo bool) string {
 	//  }
 
 	if c.IsContainer() {
-		switch c.Containers.Type {
+		switch c.ContainerType {
 		case "", "docker":
 			cmd = fmt.Sprintf(`docker exec --user 0 %s %s -c '%s'`,
 				c.Container.ContainerID, dockerShell(c.Distro.Family), cmd)
@@ -458,7 +449,7 @@ func addKeyAuth(auths []ssh.AuthMethod, keypath string, keypassword string) ([]s
 	// get first pem block
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		return auths, fmt.Errorf("no key found in %s", keypath)
+		return auths, xerrors.Errorf("no key found in %s", keypath)
 	}
 
 	// handle plain and encrypted keyfiles
@@ -495,6 +486,6 @@ func parsePemBlock(block *pem.Block) (interface{}, error) {
 	case "DSA PRIVATE KEY":
 		return ssh.ParseDSAPrivateKey(block.Bytes)
 	default:
-		return nil, fmt.Errorf("Unsupported key type %q", block.Type)
+		return nil, xerrors.Errorf("Unsupported key type %q", block.Type)
 	}
 }

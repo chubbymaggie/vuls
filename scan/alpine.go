@@ -1,30 +1,13 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package scan
 
 import (
 	"bufio"
-	"fmt"
 	"strings"
 
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
+	"golang.org/x/xerrors"
 )
 
 // inherit OsTypeInterface
@@ -64,7 +47,11 @@ func detectAlpine(c config.ServerInfo) (itsMe bool, os osTypeInterface) {
 	return false, os
 }
 
-func (o *alpine) checkDependencies() error {
+func (o *alpine) checkScanMode() error {
+	return nil
+}
+
+func (o *alpine) checkDeps() error {
 	o.log.Infof("Dependencies... No need")
 	return nil
 }
@@ -75,14 +62,18 @@ func (o *alpine) checkIfSudoNoPasswd() error {
 }
 
 func (o *alpine) apkUpdate() error {
+	if o.getServerInfo().Mode.IsOffline() {
+		return nil
+	}
 	r := o.exec("apk update", noSudo)
 	if !r.isSuccess() {
-		return fmt.Errorf("Failed to SSH: %s", r)
+		return xerrors.Errorf("Failed to SSH: %s", r)
 	}
 	return nil
 }
 
 func (o *alpine) preCure() error {
+	o.log.Infof("Scanning in %s", o.getServerInfo().Mode)
 	if err := o.detectIPAddr(); err != nil {
 		o.log.Debugf("Failed to detect IP addresses: %s", err)
 	}
@@ -122,11 +113,14 @@ func (o *alpine) scanPackages() error {
 
 	updatable, err := o.scanUpdatablePackages()
 	if err != nil {
-		o.log.Errorf("Failed to scan installed packages: %s", err)
-		return err
+		err = xerrors.Errorf("Failed to scan updatable packages: %w", err)
+		o.log.Warnf("err: %+v", err)
+		o.warns = append(o.warns, err)
+		// Only warning this error
+	} else {
+		installed.MergeNewVersion(updatable)
 	}
 
-	installed.MergeNewVersion(updatable)
 	o.Packages = installed
 	return nil
 }
@@ -135,9 +129,14 @@ func (o *alpine) scanInstalledPackages() (models.Packages, error) {
 	cmd := util.PrependProxyEnv("apk info -v")
 	r := o.exec(cmd, noSudo)
 	if !r.isSuccess() {
-		return nil, fmt.Errorf("Failed to SSH: %s", r)
+		return nil, xerrors.Errorf("Failed to SSH: %s", r)
 	}
 	return o.parseApkInfo(r.Stdout)
+}
+
+func (o *alpine) parseInstalledPackages(stdout string) (models.Packages, models.SrcPackages, error) {
+	installedPackages, err := o.parseApkInfo(stdout)
+	return installedPackages, nil, err
 }
 
 func (o *alpine) parseApkInfo(stdout string) (models.Packages, error) {
@@ -147,7 +146,7 @@ func (o *alpine) parseApkInfo(stdout string) (models.Packages, error) {
 		line := scanner.Text()
 		ss := strings.Split(line, "-")
 		if len(ss) < 3 {
-			return nil, fmt.Errorf("Failed to parse apk info -v: %s", line)
+			return nil, xerrors.Errorf("Failed to parse apk info -v: %s", line)
 		}
 		name := strings.Join(ss[:len(ss)-2], "-")
 		packs[name] = models.Package{
@@ -162,7 +161,7 @@ func (o *alpine) scanUpdatablePackages() (models.Packages, error) {
 	cmd := util.PrependProxyEnv("apk version")
 	r := o.exec(cmd, noSudo)
 	if !r.isSuccess() {
-		return nil, fmt.Errorf("Failed to SSH: %s", r)
+		return nil, xerrors.Errorf("Failed to SSH: %s", r)
 	}
 	return o.parseApkVersion(r.Stdout)
 }

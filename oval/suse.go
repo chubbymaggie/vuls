@@ -1,26 +1,10 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package oval
 
 import (
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
+	"github.com/kotakanbe/goval-dictionary/db"
 	ovalmodels "github.com/kotakanbe/goval-dictionary/models"
 )
 
@@ -40,15 +24,15 @@ func NewSUSE() SUSE {
 }
 
 // FillWithOval returns scan result after updating CVE info by OVAL
-func (o SUSE) FillWithOval(r *models.ScanResult) (err error) {
+func (o SUSE) FillWithOval(driver db.DB, r *models.ScanResult) (nCVEs int, err error) {
 	var relatedDefs ovalResult
-	if o.isFetchViaHTTP() {
+	if config.Conf.OvalDict.IsFetchViaHTTP() {
 		if relatedDefs, err = getDefsByPackNameViaHTTP(r); err != nil {
-			return err
+			return 0, err
 		}
 	} else {
-		if relatedDefs, err = getDefsByPackNameFromOvalDB(r); err != nil {
-			return err
+		if relatedDefs, err = getDefsByPackNameFromOvalDB(driver, r); err != nil {
+			return 0, err
 		}
 	}
 	for _, defPacks := range relatedDefs.entries {
@@ -61,7 +45,7 @@ func (o SUSE) FillWithOval(r *models.ScanResult) (err error) {
 			vuln.CveContents[models.SUSE] = cont
 		}
 	}
-	return nil
+	return len(relatedDefs.entries), nil
 }
 
 func (o SUSE) update(r *models.ScanResult, defPacks defPacks) {
@@ -72,7 +56,7 @@ func (o SUSE) update(r *models.ScanResult, defPacks defPacks) {
 		util.Log.Debugf("%s is newly detected by OVAL", defPacks.def.Title)
 		vinfo = models.VulnInfo{
 			CveID:       defPacks.def.Title,
-			Confidence:  models.OvalMatch,
+			Confidences: models.Confidences{models.OvalMatch},
 			CveContents: models.NewCveContents(ovalContent),
 		}
 	} else {
@@ -84,19 +68,16 @@ func (o SUSE) update(r *models.ScanResult, defPacks defPacks) {
 			util.Log.Debugf("%s is also detected by OVAL", defPacks.def.Title)
 			cveContents = models.CveContents{}
 		}
-		if vinfo.Confidence.Score < models.OvalMatch.Score {
-			vinfo.Confidence = models.OvalMatch
-		}
+		vinfo.Confidences.AppendIfMissing(models.OvalMatch)
 		cveContents[ctype] = ovalContent
 		vinfo.CveContents = cveContents
 	}
 
 	// uniq(vinfo.PackNames + defPacks.actuallyAffectedPackNames)
 	for _, pack := range vinfo.AffectedPackages {
-		notFixedYet, _ := defPacks.actuallyAffectedPackNames[pack.Name]
-		defPacks.actuallyAffectedPackNames[pack.Name] = notFixedYet
+		defPacks.actuallyAffectedPackNames[pack.Name] = pack.NotFixedYet
 	}
-	vinfo.AffectedPackages = defPacks.toPackStatuses(r.Family)
+	vinfo.AffectedPackages = defPacks.toPackStatuses()
 	vinfo.AffectedPackages.Sort()
 	r.ScannedCves[defPacks.def.Title] = vinfo
 }

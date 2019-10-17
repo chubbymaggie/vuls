@@ -1,20 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package report
 
 import (
@@ -25,13 +8,12 @@ import (
 
 	"github.com/cenkalti/backoff"
 	"github.com/parnurzeal/gorequest"
+	"golang.org/x/xerrors"
 
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/util"
-	cveconfig "github.com/kotakanbe/go-cve-dictionary/config"
 	cvedb "github.com/kotakanbe/go-cve-dictionary/db"
-	cve "github.com/kotakanbe/go-cve-dictionary/models"
-	log "github.com/sirupsen/logrus"
+	cvemodels "github.com/kotakanbe/go-cve-dictionary/models"
 )
 
 // CveClient is api client of CVE disctionary service.
@@ -43,12 +25,12 @@ type cvedictClient struct {
 }
 
 func (api *cvedictClient) initialize() {
-	api.baseURL = config.Conf.CveDBURL
+	api.baseURL = config.Conf.CveDict.URL
 }
 
 func (api cvedictClient) CheckHealth() error {
-	if !api.isFetchViaHTTP() {
-		util.Log.Debugf("get cve-dictionary from %s", config.Conf.CveDBType)
+	if !config.Conf.CveDict.IsFetchViaHTTP() {
+		util.Log.Debugf("get cve-dictionary from %s", config.Conf.CveDict.Type)
 		return nil
 	}
 
@@ -59,7 +41,7 @@ func (api cvedictClient) CheckHealth() error {
 	resp, _, errs = gorequest.New().SetDebug(config.Conf.Debug).Get(url).End()
 	//  resp, _, errs = gorequest.New().Proxy(api.httpProxy).Get(url).End()
 	if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
-		return fmt.Errorf("Failed to request to CVE server. url: %s, errs: %v",
+		return xerrors.Errorf("Failed to request to CVE server. url: %s, errs: %w",
 			url, errs)
 	}
 	return nil
@@ -67,15 +49,31 @@ func (api cvedictClient) CheckHealth() error {
 
 type response struct {
 	Key       string
-	CveDetail cve.CveDetail
+	CveDetail cvemodels.CveDetail
 }
 
-func (api cvedictClient) FetchCveDetails(cveIDs []string) (cveDetails []*cve.CveDetail, err error) {
-	if !api.isFetchViaHTTP() {
-		return api.FetchCveDetailsFromCveDB(cveIDs)
+func (api cvedictClient) FetchCveDetails(driver cvedb.DB, cveIDs []string) (cveDetails []cvemodels.CveDetail, err error) {
+	if !config.Conf.CveDict.IsFetchViaHTTP() {
+		if driver == nil {
+			return
+		}
+		for _, cveID := range cveIDs {
+			cveDetail, err := driver.Get(cveID)
+			if err != nil {
+				return nil, xerrors.Errorf("Failed to fetch CVE. err: %w", err)
+			}
+			if len(cveDetail.CveID) == 0 {
+				cveDetails = append(cveDetails, cvemodels.CveDetail{
+					CveID: cveID,
+				})
+			} else {
+				cveDetails = append(cveDetails, *cveDetail)
+			}
+		}
+		return
 	}
 
-	api.baseURL = config.Conf.CveDBURL
+	api.baseURL = config.Conf.CveDict.URL
 	reqChan := make(chan string, len(cveIDs))
 	resChan := make(chan response, len(cveIDs))
 	errChan := make(chan error, len(cveIDs))
@@ -112,50 +110,21 @@ func (api cvedictClient) FetchCveDetails(cveIDs []string) (cveDetails []*cve.Cve
 		select {
 		case res := <-resChan:
 			if len(res.CveDetail.CveID) == 0 {
-				cveDetails = append(cveDetails, &cve.CveDetail{
+				cveDetails = append(cveDetails, cvemodels.CveDetail{
 					CveID: res.Key,
 				})
 			} else {
-				cveDetails = append(cveDetails, &res.CveDetail)
+				cveDetails = append(cveDetails, res.CveDetail)
 			}
 		case err := <-errChan:
 			errs = append(errs, err)
 		case <-timeout:
-			return []*cve.CveDetail{}, fmt.Errorf("Timeout Fetching CVE")
+			return nil, xerrors.New("Timeout Fetching CVE")
 		}
 	}
 	if len(errs) != 0 {
-		return []*cve.CveDetail{},
-			fmt.Errorf("Failed to fetch CVE. err: %v", errs)
-	}
-	return
-}
-
-func (api cvedictClient) FetchCveDetailsFromCveDB(cveIDs []string) (cveDetails []*cve.CveDetail, err error) {
-	util.Log.Debugf("open cve-dictionary db (%s)", config.Conf.CveDBType)
-	cveconfig.Conf.DBType = config.Conf.CveDBType
-	if config.Conf.CveDBType == "sqlite3" {
-		cveconfig.Conf.DBPath = config.Conf.CveDBPath
-	} else {
-		cveconfig.Conf.DBPath = config.Conf.CveDBURL
-	}
-	cveconfig.Conf.DebugSQL = config.Conf.DebugSQL
-
-	var driver cvedb.DB
-	if driver, err = cvedb.NewDB(cveconfig.Conf.DBType, cveconfig.Conf.DBPath, cveconfig.Conf.DebugSQL); err != nil {
-		log.Error(err)
-		return []*cve.CveDetail{}, fmt.Errorf("Failed to New DB. err: %s", err)
-	}
-
-	for _, cveID := range cveIDs {
-		cveDetail := driver.Get(cveID)
-		if len(cveDetail.CveID) == 0 {
-			cveDetails = append(cveDetails, &cve.CveDetail{
-				CveID: cveID,
-			})
-		} else {
-			cveDetails = append(cveDetails, cveDetail)
-		}
+		return nil,
+			xerrors.Errorf("Failed to fetch CVE. err: %w", errs)
 	}
 	return
 }
@@ -168,8 +137,8 @@ func (api cvedictClient) httpGet(key, url string, resChan chan<- response, errCh
 		//  resp, body, errs = gorequest.New().SetDebug(config.Conf.Debug).Get(url).End()
 		resp, body, errs = gorequest.New().Get(url).End()
 		if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
-			return fmt.Errorf("HTTP GET error: %v, url: %s, resp: %v",
-				errs, url, resp)
+			return xerrors.Errorf("HTTP GET Error, url: %s, resp: %v, err: %w",
+				url, resp, errs)
 		}
 		return nil
 	}
@@ -179,13 +148,12 @@ func (api cvedictClient) httpGet(key, url string, resChan chan<- response, errCh
 	}
 	err := backoff.RetryNotify(f, backoff.NewExponentialBackOff(), notify)
 	if err != nil {
-		errChan <- fmt.Errorf("HTTP Error %s", err)
+		errChan <- xerrors.Errorf("HTTP Error: %w", err)
 		return
 	}
-	cveDetail := cve.CveDetail{}
+	cveDetail := cvemodels.CveDetail{}
 	if err := json.Unmarshal([]byte(body), &cveDetail); err != nil {
-		errChan <- fmt.Errorf("Failed to Unmarshall. body: %s, err: %s",
-			body, err)
+		errChan <- xerrors.Errorf("Failed to Unmarshall. body: %s, err: %w", body, err)
 		return
 	}
 	resChan <- response{
@@ -194,36 +162,22 @@ func (api cvedictClient) httpGet(key, url string, resChan chan<- response, errCh
 	}
 }
 
-type responseGetCveDetailByCpeName struct {
-	CpeName    string
-	CveDetails []cve.CveDetail
-}
-
-func (api cvedictClient) isFetchViaHTTP() bool {
-	// Default value of CveDBType is sqlite3
-	if config.Conf.CveDBURL != "" && config.Conf.CveDBType == "sqlite3" {
-		return true
-	}
-	return false
-}
-
-func (api cvedictClient) FetchCveDetailsByCpeName(cpeName string) ([]*cve.CveDetail, error) {
-	if api.isFetchViaHTTP() {
-		api.baseURL = config.Conf.CveDBURL
+func (api cvedictClient) FetchCveDetailsByCpeName(driver cvedb.DB, cpeName string) ([]cvemodels.CveDetail, error) {
+	if config.Conf.CveDict.IsFetchViaHTTP() {
+		api.baseURL = config.Conf.CveDict.URL
 		url, err := util.URLPathJoin(api.baseURL, "cpes")
 		if err != nil {
-			return []*cve.CveDetail{}, err
+			return nil, err
 		}
 
 		query := map[string]string{"name": cpeName}
 		util.Log.Debugf("HTTP Request to %s, query: %#v", url, query)
 		return api.httpPost(cpeName, url, query)
 	}
-
-	return api.FetchCveDetailsByCpeNameFromDB(cpeName)
+	return driver.GetByCpeURI(cpeName)
 }
 
-func (api cvedictClient) httpPost(key, url string, query map[string]string) ([]*cve.CveDetail, error) {
+func (api cvedictClient) httpPost(key, url string, query map[string]string) ([]cvemodels.CveDetail, error) {
 	var body string
 	var errs []error
 	var resp *http.Response
@@ -235,7 +189,7 @@ func (api cvedictClient) httpPost(key, url string, query map[string]string) ([]*
 		}
 		resp, body, errs = req.End()
 		if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
-			return fmt.Errorf("HTTP POST error: %v, url: %s, resp: %v", errs, url, resp)
+			return xerrors.Errorf("HTTP POST error. url: %s, resp: %v, err: %w", url, resp, errs)
 		}
 		return nil
 	}
@@ -244,33 +198,13 @@ func (api cvedictClient) httpPost(key, url string, query map[string]string) ([]*
 	}
 	err := backoff.RetryNotify(f, backoff.NewExponentialBackOff(), notify)
 	if err != nil {
-		return []*cve.CveDetail{}, fmt.Errorf("HTTP Error %s", err)
+		return nil, xerrors.Errorf("HTTP Error: %w", err)
 	}
 
-	cveDetails := []*cve.CveDetail{}
+	cveDetails := []cvemodels.CveDetail{}
 	if err := json.Unmarshal([]byte(body), &cveDetails); err != nil {
-		return []*cve.CveDetail{},
-			fmt.Errorf("Failed to Unmarshall. body: %s, err: %s", body, err)
+		return nil,
+			xerrors.Errorf("Failed to Unmarshall. body: %s, err: %w", body, err)
 	}
 	return cveDetails, nil
-}
-
-func (api cvedictClient) FetchCveDetailsByCpeNameFromDB(cpeName string) (cveDetails []*cve.CveDetail, err error) {
-	util.Log.Debugf("open cve-dictionary db (%s)", config.Conf.CveDBType)
-	cveconfig.Conf.DBType = config.Conf.CveDBType
-	if config.Conf.CveDBType == "sqlite3" {
-		cveconfig.Conf.DBPath = config.Conf.CveDBPath
-	} else {
-		cveconfig.Conf.DBPath = config.Conf.CveDBURL
-	}
-	cveconfig.Conf.DebugSQL = config.Conf.DebugSQL
-
-	var driver cvedb.DB
-	if driver, err = cvedb.NewDB(cveconfig.Conf.DBType, cveconfig.Conf.DBPath, cveconfig.Conf.DebugSQL); err != nil {
-		log.Error(err)
-		return []*cve.CveDetail{}, fmt.Errorf("Failed to New DB. err: %s", err)
-	}
-
-	util.Log.Debugf("Opening DB (%s).", driver.Name())
-	return driver.GetByCpeName(cpeName), nil
 }

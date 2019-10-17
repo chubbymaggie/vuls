@@ -1,20 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package scan
 
 import (
@@ -530,6 +513,7 @@ func TestParseAptCachePolicy(t *testing.T) {
 				Name:      "openssl",
 				Installed: "1.0.2f-2ubuntu1",
 				Candidate: "1.0.2g-1ubuntu2",
+				Repo:      "xenial/main",
 			},
 		},
 		{
@@ -550,6 +534,7 @@ func TestParseAptCachePolicy(t *testing.T) {
 				Name:      "openssl",
 				Installed: "1.0.1f-1ubuntu2.16",
 				Candidate: "1.0.1f-1ubuntu2.17",
+				Repo:      "trusty-updates/main",
 			},
 		},
 		{
@@ -570,6 +555,7 @@ func TestParseAptCachePolicy(t *testing.T) {
 				Name:      "openssl",
 				Installed: "1.0.1-4ubuntu5.33",
 				Candidate: "1.0.1-4ubuntu5.34",
+				Repo:      "precise-updates/main",
 			},
 		},
 	}
@@ -585,5 +571,176 @@ func TestParseAptCachePolicy(t *testing.T) {
 			a := pp.Sprintf("%v", actual)
 			t.Errorf("expected %s, actual %s", e, a)
 		}
+	}
+}
+
+func TestParseCheckRestart(t *testing.T) {
+	r := newDebian(config.ServerInfo{})
+	r.Distro = config.Distro{Family: "debian"}
+	var tests = []struct {
+		in              string
+		out             models.Packages
+		unknownServices []string
+	}{
+		{
+			in: `Found 27 processes using old versions of upgraded files
+(19 distinct programs)
+(15 distinct packages)
+
+Of these, 14 seem to contain systemd service definitions or init scripts which can be used to restart them.
+The following packages seem to have definitions that could be used
+to restart their services:
+varnish:
+	3490	/usr/sbin/varnishd
+	3704	/usr/sbin/varnishd
+memcached:
+	3636	/usr/bin/memcached
+openssh-server:
+	1252	/usr/sbin/sshd
+	1184	/usr/sbin/sshd
+accountsservice:
+	462     /usr/lib/accountsservice/accounts-daemon
+
+These are the systemd services:
+systemctl restart accounts-daemon.service
+
+These are the initd scripts:
+service varnish restart
+service memcached restart
+service ssh restart
+
+These processes (1) do not seem to have an associated init script to restart them:
+util-linux:
+	3650	/sbin/agetty
+	3648	/sbin/agetty`,
+			out: models.NewPackages(
+				models.Package{
+					Name: "varnish",
+					NeedRestartProcs: []models.NeedRestartProcess{
+						{
+							PID:         "3490",
+							Path:        "/usr/sbin/varnishd",
+							ServiceName: "varnish",
+							HasInit:     true,
+						},
+						{
+							PID:         "3704",
+							Path:        "/usr/sbin/varnishd",
+							ServiceName: "varnish",
+							HasInit:     true,
+						},
+					},
+				},
+				models.Package{
+					Name: "memcached",
+					NeedRestartProcs: []models.NeedRestartProcess{
+						{
+							PID:         "3636",
+							Path:        "/usr/bin/memcached",
+							ServiceName: "memcached",
+							HasInit:     true,
+						},
+					},
+				},
+				models.Package{
+					Name: "openssh-server",
+					NeedRestartProcs: []models.NeedRestartProcess{
+						{
+							PID:         "1252",
+							Path:        "/usr/sbin/sshd",
+							ServiceName: "",
+							HasInit:     true,
+						},
+						{
+							PID:         "1184",
+							Path:        "/usr/sbin/sshd",
+							ServiceName: "",
+							HasInit:     true,
+						},
+					},
+				},
+				models.Package{
+					Name: "accountsservice",
+					NeedRestartProcs: []models.NeedRestartProcess{
+						{
+							PID:         "462",
+							Path:        "/usr/lib/accountsservice/accounts-daemon",
+							ServiceName: "",
+							HasInit:     true,
+						},
+					},
+				},
+				models.Package{
+					Name: "util-linux",
+					NeedRestartProcs: []models.NeedRestartProcess{
+						{
+							PID:     "3650",
+							Path:    "/sbin/agetty",
+							HasInit: false,
+						},
+						{
+							PID:     "3648",
+							Path:    "/sbin/agetty",
+							HasInit: false,
+						},
+					},
+				},
+			),
+			unknownServices: []string{"ssh"},
+		},
+		{
+			in:              `Found 0 processes using old versions of upgraded files`,
+			out:             models.Packages{},
+			unknownServices: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		packages, services := r.parseCheckRestart(tt.in)
+		for name, ePack := range tt.out {
+			if !reflect.DeepEqual(ePack, packages[name]) {
+				e := pp.Sprintf("%v", ePack)
+				a := pp.Sprintf("%v", packages[name])
+				t.Errorf("expected %s, actual %s", e, a)
+			}
+		}
+		if !reflect.DeepEqual(tt.unknownServices, services) {
+			t.Errorf("expected %s, actual %s", tt.unknownServices, services)
+		}
+	}
+}
+
+func Test_debian_parseGetPkgName(t *testing.T) {
+	type args struct {
+		stdout string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		wantPkgNames []string
+	}{
+		{
+			name: "success",
+			args: args{
+				stdout: `udev: /lib/systemd/systemd-udevd
+dpkg-query: no path found matching pattern /lib/modules/3.16.0-6-amd64/modules.alias.bin
+udev: /lib/systemd/systemd-udevd
+dpkg-query: no path found matching pattern /lib/udev/hwdb.bin
+libuuid1:amd64: /lib/x86_64-linux-gnu/libuuid.so.1.3.0`,
+			},
+			wantPkgNames: []string{
+				"udev",
+				"libuuid1",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &debian{}
+			gotPkgNames := o.parseGetPkgName(tt.args.stdout)
+			if !reflect.DeepEqual(gotPkgNames, tt.wantPkgNames) {
+				t.Errorf("debian.parseGetPkgName() = %v, want %v", gotPkgNames, tt.wantPkgNames)
+			}
+		})
 	}
 }

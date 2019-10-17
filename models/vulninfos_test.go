@@ -1,19 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
 package models
 
 import (
@@ -36,16 +20,16 @@ func TestTitles(t *testing.T) {
 				lang: "ja",
 				cont: VulnInfo{
 					CveContents: CveContents{
-						JVN: {
-							Type:  JVN,
+						Jvn: {
+							Type:  Jvn,
 							Title: "Title1",
 						},
 						RedHat: {
 							Type:    RedHat,
 							Summary: "Summary RedHat",
 						},
-						NVD: {
-							Type:    NVD,
+						NvdXML: {
+							Type:    NvdXML,
 							Summary: "Summary NVD",
 							// Severity is NIOT included in NVD
 						},
@@ -54,11 +38,11 @@ func TestTitles(t *testing.T) {
 			},
 			out: []CveContentStr{
 				{
-					Type:  JVN,
+					Type:  Jvn,
 					Value: "Title1",
 				},
 				{
-					Type:  NVD,
+					Type:  NvdXML,
 					Value: "Summary NVD",
 				},
 				{
@@ -73,16 +57,16 @@ func TestTitles(t *testing.T) {
 				lang: "en",
 				cont: VulnInfo{
 					CveContents: CveContents{
-						JVN: {
-							Type:  JVN,
+						Jvn: {
+							Type:  Jvn,
 							Title: "Title1",
 						},
 						RedHat: {
 							Type:    RedHat,
 							Summary: "Summary RedHat",
 						},
-						NVD: {
-							Type:    NVD,
+						NvdXML: {
+							Type:    NvdXML,
 							Summary: "Summary NVD",
 							// Severity is NIOT included in NVD
 						},
@@ -91,7 +75,7 @@ func TestTitles(t *testing.T) {
 			},
 			out: []CveContentStr{
 				{
-					Type:  NVD,
+					Type:  NvdXML,
 					Value: "Summary NVD",
 				},
 				{
@@ -137,8 +121,8 @@ func TestSummaries(t *testing.T) {
 				lang: "ja",
 				cont: VulnInfo{
 					CveContents: CveContents{
-						JVN: {
-							Type:    JVN,
+						Jvn: {
+							Type:    Jvn,
 							Title:   "Title JVN",
 							Summary: "Summary JVN",
 						},
@@ -146,8 +130,8 @@ func TestSummaries(t *testing.T) {
 							Type:    RedHat,
 							Summary: "Summary RedHat",
 						},
-						NVD: {
-							Type:    NVD,
+						NvdXML: {
+							Type:    NvdXML,
 							Summary: "Summary NVD",
 							// Severity is NIOT included in NVD
 						},
@@ -156,16 +140,16 @@ func TestSummaries(t *testing.T) {
 			},
 			out: []CveContentStr{
 				{
-					Type:  JVN,
+					Type:  Jvn,
 					Value: "Title JVN\nSummary JVN",
-				},
-				{
-					Type:  NVD,
-					Value: "Summary NVD",
 				},
 				{
 					Type:  RedHat,
 					Value: "Summary RedHat",
+				},
+				{
+					Type:  NvdXML,
+					Value: "Summary NVD",
 				},
 			},
 		},
@@ -175,8 +159,8 @@ func TestSummaries(t *testing.T) {
 				lang: "en",
 				cont: VulnInfo{
 					CveContents: CveContents{
-						JVN: {
-							Type:    JVN,
+						Jvn: {
+							Type:    Jvn,
 							Title:   "Title JVN",
 							Summary: "Summary JVN",
 						},
@@ -184,8 +168,8 @@ func TestSummaries(t *testing.T) {
 							Type:    RedHat,
 							Summary: "Summary RedHat",
 						},
-						NVD: {
-							Type:    NVD,
+						NvdXML: {
+							Type:    NvdXML,
 							Summary: "Summary NVD",
 							// Severity is NIOT included in NVD
 						},
@@ -194,12 +178,12 @@ func TestSummaries(t *testing.T) {
 			},
 			out: []CveContentStr{
 				{
-					Type:  NVD,
-					Value: "Summary NVD",
-				},
-				{
 					Type:  RedHat,
 					Value: "Summary RedHat",
+				},
+				{
+					Type:  NvdXML,
+					Value: "Summary NVD",
 				},
 			},
 		},
@@ -235,8 +219,8 @@ func TestCountGroupBySeverity(t *testing.T) {
 				"CVE-2017-0002": {
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 6.0,
 						},
 						RedHat: {
@@ -248,8 +232,8 @@ func TestCountGroupBySeverity(t *testing.T) {
 				"CVE-2017-0003": {
 					CveID: "CVE-2017-0003",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 2.0,
 						},
 					},
@@ -257,8 +241,8 @@ func TestCountGroupBySeverity(t *testing.T) {
 				"CVE-2017-0004": {
 					CveID: "CVE-2017-0004",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 5.0,
 						},
 					},
@@ -296,8 +280,8 @@ func TestToSortedSlice(t *testing.T) {
 				"CVE-2017-0002": {
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 6.0,
 						},
 						RedHat: {
@@ -309,8 +293,8 @@ func TestToSortedSlice(t *testing.T) {
 				"CVE-2017-0001": {
 					CveID: "CVE-2017-0001",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 7.0,
 						},
 						RedHat: {
@@ -324,8 +308,8 @@ func TestToSortedSlice(t *testing.T) {
 				{
 					CveID: "CVE-2017-0001",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 7.0,
 						},
 						RedHat: {
@@ -337,8 +321,8 @@ func TestToSortedSlice(t *testing.T) {
 				{
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 6.0,
 						},
 						RedHat: {
@@ -355,8 +339,8 @@ func TestToSortedSlice(t *testing.T) {
 				"CVE-2017-0002": {
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 6.0,
 						},
 						RedHat: {
@@ -388,8 +372,8 @@ func TestToSortedSlice(t *testing.T) {
 				{
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
-						NVD: {
-							Type:       NVD,
+						NvdXML: {
+							Type:       NvdXML,
 							Cvss2Score: 6.0,
 						},
 						RedHat: {
@@ -407,8 +391,8 @@ func TestToSortedSlice(t *testing.T) {
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
 						Ubuntu: {
-							Type:     Ubuntu,
-							Severity: "High",
+							Type:          Ubuntu,
+							Cvss2Severity: "High",
 						},
 					},
 				},
@@ -416,8 +400,8 @@ func TestToSortedSlice(t *testing.T) {
 					CveID: "CVE-2017-0001",
 					CveContents: CveContents{
 						Ubuntu: {
-							Type:     Ubuntu,
-							Severity: "Low",
+							Type:          Ubuntu,
+							Cvss2Severity: "Low",
 						},
 					},
 				},
@@ -427,8 +411,8 @@ func TestToSortedSlice(t *testing.T) {
 					CveID: "CVE-2017-0002",
 					CveContents: CveContents{
 						Ubuntu: {
-							Type:     Ubuntu,
-							Severity: "High",
+							Type:          Ubuntu,
+							Cvss2Severity: "High",
 						},
 					},
 				},
@@ -436,8 +420,8 @@ func TestToSortedSlice(t *testing.T) {
 					CveID: "CVE-2017-0001",
 					CveContents: CveContents{
 						Ubuntu: {
-							Type:     Ubuntu,
-							Severity: "Low",
+							Type:          Ubuntu,
+							Cvss2Severity: "Low",
 						},
 					},
 				},
@@ -460,29 +444,29 @@ func TestCvss2Scores(t *testing.T) {
 		{
 			in: VulnInfo{
 				CveContents: CveContents{
-					JVN: {
-						Type:        JVN,
-						Severity:    "HIGH",
-						Cvss2Score:  8.2,
-						Cvss2Vector: "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+					Jvn: {
+						Type:          Jvn,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.2,
+						Cvss2Vector:   "AV:N/AC:L/Au:N/C:N/I:N/A:P",
 					},
 					RedHat: {
-						Type:        RedHat,
-						Severity:    "HIGH",
-						Cvss2Score:  8.0,
-						Cvss2Vector: "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+						Type:          RedHat,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.0,
+						Cvss2Vector:   "AV:N/AC:L/Au:N/C:N/I:N/A:P",
 					},
-					NVD: {
-						Type:        NVD,
-						Cvss2Score:  8.1,
-						Cvss2Vector: "AV:N/AC:L/Au:N/C:N/I:N/A:P",
-						// Severity is NIOT included in NVD
+					NvdXML: {
+						Type:          NvdXML,
+						Cvss2Score:    8.1,
+						Cvss2Vector:   "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+						Cvss2Severity: "HIGH",
 					},
 				},
 			},
 			out: []CveContentCvss{
 				{
-					Type: NVD,
+					Type: NvdXML,
 					Value: Cvss{
 						Type:     CVSS2,
 						Score:    8.1,
@@ -500,7 +484,7 @@ func TestCvss2Scores(t *testing.T) {
 					},
 				},
 				{
-					Type: JVN,
+					Type: Jvn,
 					Value: Cvss{
 						Type:     CVSS2,
 						Score:    8.2,
@@ -517,9 +501,9 @@ func TestCvss2Scores(t *testing.T) {
 		},
 	}
 	for i, tt := range tests {
-		actual := tt.in.Cvss2Scores()
+		actual := tt.in.Cvss2Scores("redhat")
 		if !reflect.DeepEqual(tt.out, actual) {
-			t.Errorf("[%d] expected: %v\n  actual: %v\n", i, tt.out, actual)
+			t.Errorf("[%d]\nexpected: %v\n  actual: %v\n", i, tt.out, actual)
 		}
 	}
 }
@@ -532,20 +516,20 @@ func TestMaxCvss2Scores(t *testing.T) {
 		{
 			in: VulnInfo{
 				CveContents: CveContents{
-					JVN: {
-						Type:        JVN,
-						Severity:    "HIGH",
-						Cvss2Score:  8.2,
-						Cvss2Vector: "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+					Jvn: {
+						Type:          Jvn,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.2,
+						Cvss2Vector:   "AV:N/AC:L/Au:N/C:N/I:N/A:P",
 					},
 					RedHat: {
-						Type:        RedHat,
-						Severity:    "HIGH",
-						Cvss2Score:  8.0,
-						Cvss2Vector: "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+						Type:          RedHat,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.0,
+						Cvss2Vector:   "AV:N/AC:L/Au:N/C:N/I:N/A:P",
 					},
-					NVD: {
-						Type:        NVD,
+					NvdXML: {
+						Type:        NvdXML,
 						Cvss2Score:  8.1,
 						Cvss2Vector: "AV:N/AC:L/Au:N/C:N/I:N/A:P",
 						// Severity is NIOT included in NVD
@@ -553,7 +537,7 @@ func TestMaxCvss2Scores(t *testing.T) {
 				},
 			},
 			out: CveContentCvss{
-				Type: JVN,
+				Type: Jvn,
 				Value: Cvss{
 					Type:     CVSS2,
 					Score:    8.2,
@@ -567,8 +551,8 @@ func TestMaxCvss2Scores(t *testing.T) {
 			in: VulnInfo{
 				CveContents: CveContents{
 					Ubuntu: {
-						Type:     Ubuntu,
-						Severity: "HIGH",
+						Type:          Ubuntu,
+						Cvss2Severity: "HIGH",
 					},
 				},
 			},
@@ -613,16 +597,16 @@ func TestCvss3Scores(t *testing.T) {
 			in: VulnInfo{
 				CveContents: CveContents{
 					RedHat: {
-						Type:        RedHat,
-						Severity:    "HIGH",
-						Cvss3Score:  8.0,
-						Cvss3Vector: "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+						Type:          RedHat,
+						Cvss3Severity: "HIGH",
+						Cvss3Score:    8.0,
+						Cvss3Vector:   "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
 					},
-					NVD: {
-						Type:        NVD,
-						Cvss3Score:  8.1,
-						Cvss3Vector: "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
-						// Severity is NIOT included in NVD
+					NvdXML: {
+						Type:          NvdXML,
+						Cvss2Score:    8.1,
+						Cvss2Vector:   "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+						Cvss2Severity: "HIGH",
 					},
 				},
 			},
@@ -661,10 +645,10 @@ func TestMaxCvss3Scores(t *testing.T) {
 			in: VulnInfo{
 				CveContents: CveContents{
 					RedHat: {
-						Type:        RedHat,
-						Severity:    "HIGH",
-						Cvss3Score:  8.0,
-						Cvss3Vector: "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+						Type:          RedHat,
+						Cvss3Severity: "HIGH",
+						Cvss3Score:    8.0,
+						Cvss3Vector:   "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
 					},
 				},
 			},
@@ -708,8 +692,8 @@ func TestMaxCvssScores(t *testing.T) {
 		{
 			in: VulnInfo{
 				CveContents: CveContents{
-					NVD: {
-						Type:       NVD,
+					NvdXML: {
+						Type:       NvdXML,
 						Cvss3Score: 7.0,
 					},
 					RedHat: {
@@ -748,8 +732,8 @@ func TestMaxCvssScores(t *testing.T) {
 			in: VulnInfo{
 				CveContents: CveContents{
 					Ubuntu: {
-						Type:     Ubuntu,
-						Severity: "HIGH",
+						Type:          Ubuntu,
+						Cvss2Severity: "HIGH",
 					},
 				},
 			},
@@ -768,17 +752,18 @@ func TestMaxCvssScores(t *testing.T) {
 			in: VulnInfo{
 				CveContents: CveContents{
 					Ubuntu: {
-						Type:     Ubuntu,
-						Severity: "MEDIUM",
+						Type:          Ubuntu,
+						Cvss2Severity: "MEDIUM",
 					},
-					NVD: {
-						Type:       NVD,
-						Cvss2Score: 7.0,
+					NvdXML: {
+						Type:          NvdXML,
+						Cvss2Score:    7.0,
+						Cvss2Severity: "HIGH",
 					},
 				},
 			},
 			out: CveContentCvss{
-				Type: NVD,
+				Type: NvdXML,
 				Value: Cvss{
 					Type:     CVSS2,
 					Score:    7.0,
@@ -810,12 +795,13 @@ func TestMaxCvssScores(t *testing.T) {
 			in: VulnInfo{
 				CveContents: CveContents{
 					Ubuntu: {
-						Type:     Ubuntu,
-						Severity: "MEDIUM",
+						Type:          Ubuntu,
+						Cvss2Severity: "MEDIUM",
 					},
-					NVD: {
-						Type:       NVD,
-						Cvss2Score: 4.0,
+					NvdXML: {
+						Type:          NvdXML,
+						Cvss2Score:    4.0,
+						Cvss2Severity: "MEDIUM",
 					},
 				},
 				DistroAdvisories: []DistroAdvisory{
@@ -825,7 +811,7 @@ func TestMaxCvssScores(t *testing.T) {
 				},
 			},
 			out: CveContentCvss{
-				Type: NVD,
+				Type: NvdXML,
 				Value: Cvss{
 					Type:     CVSS2,
 					Score:    4,
@@ -861,18 +847,18 @@ func TestFormatMaxCvssScore(t *testing.T) {
 		{
 			in: VulnInfo{
 				CveContents: CveContents{
-					JVN: {
-						Type:       JVN,
-						Severity:   "HIGH",
-						Cvss2Score: 8.3,
+					Jvn: {
+						Type:          Jvn,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.3,
 					},
 					RedHat: {
-						Type:       RedHat,
-						Severity:   "HIGH",
-						Cvss3Score: 8.0,
+						Type:          RedHat,
+						Cvss2Severity: "HIGH",
+						Cvss3Score:    8.0,
 					},
-					NVD: {
-						Type:       NVD,
+					NvdXML: {
+						Type:       NvdXML,
 						Cvss2Score: 8.1,
 						// Severity is NIOT included in NVD
 					},
@@ -883,19 +869,20 @@ func TestFormatMaxCvssScore(t *testing.T) {
 		{
 			in: VulnInfo{
 				CveContents: CveContents{
-					JVN: {
-						Type:       JVN,
-						Severity:   "HIGH",
-						Cvss2Score: 8.3,
+					Jvn: {
+						Type:          Jvn,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.3,
 					},
 					RedHat: {
-						Type:       RedHat,
-						Severity:   "HIGH",
-						Cvss2Score: 8.0,
-						Cvss3Score: 9.9,
+						Type:          RedHat,
+						Cvss2Severity: "HIGH",
+						Cvss2Score:    8.0,
+						Cvss3Severity: "HIGH",
+						Cvss3Score:    9.9,
 					},
-					NVD: {
-						Type:       NVD,
+					NvdXML: {
+						Type:       NvdXML,
 						Cvss2Score: 8.1,
 					},
 				},
@@ -913,15 +900,15 @@ func TestFormatMaxCvssScore(t *testing.T) {
 
 func TestSortPackageStatues(t *testing.T) {
 	var tests = []struct {
-		in  PackageStatuses
-		out PackageStatuses
+		in  PackageFixStatuses
+		out PackageFixStatuses
 	}{
 		{
-			in: PackageStatuses{
+			in: PackageFixStatuses{
 				{Name: "b"},
 				{Name: "a"},
 			},
-			out: PackageStatuses{
+			out: PackageFixStatuses{
 				{Name: "a"},
 				{Name: "b"},
 			},
@@ -932,5 +919,164 @@ func TestSortPackageStatues(t *testing.T) {
 		if !reflect.DeepEqual(tt.in, tt.out) {
 			t.Errorf("\nexpected: %v\n  actual: %v\n", tt.out, tt.in)
 		}
+	}
+}
+
+func TestStorePackageStatueses(t *testing.T) {
+	var tests = []struct {
+		pkgstats PackageFixStatuses
+		in       PackageFixStatus
+		out      PackageFixStatuses
+	}{
+		{
+			pkgstats: PackageFixStatuses{
+				{Name: "a"},
+				{Name: "b"},
+			},
+			in: PackageFixStatus{
+				Name: "c",
+			},
+			out: PackageFixStatuses{
+				{Name: "a"},
+				{Name: "b"},
+				{Name: "c"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		out := tt.pkgstats.Store(tt.in)
+		if ok := reflect.DeepEqual(tt.out, out); !ok {
+			t.Errorf("\nexpected: %v\n  actual: %v\n", tt.out, out)
+		}
+	}
+}
+
+func TestAppendIfMissing(t *testing.T) {
+	var tests = []struct {
+		in  Confidences
+		arg Confidence
+		out Confidences
+	}{
+		{
+			in: Confidences{
+				CpeNameMatch,
+			},
+			arg: CpeNameMatch,
+			out: Confidences{
+				CpeNameMatch,
+			},
+		},
+		{
+			in: Confidences{
+				CpeNameMatch,
+			},
+			arg: ChangelogExactMatch,
+			out: Confidences{
+				CpeNameMatch,
+				ChangelogExactMatch,
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt.in.AppendIfMissing(tt.arg)
+		if !reflect.DeepEqual(tt.in, tt.out) {
+			t.Errorf("\nexpected: %v\n  actual: %v\n", tt.out, tt.in)
+		}
+	}
+}
+
+func TestSortByConfiden(t *testing.T) {
+	var tests = []struct {
+		in  Confidences
+		out Confidences
+	}{
+		{
+			in: Confidences{
+				OvalMatch,
+				CpeNameMatch,
+			},
+			out: Confidences{
+				OvalMatch,
+				CpeNameMatch,
+			},
+		},
+		{
+			in: Confidences{
+				CpeNameMatch,
+				OvalMatch,
+			},
+			out: Confidences{
+				OvalMatch,
+				CpeNameMatch,
+			},
+		},
+	}
+	for _, tt := range tests {
+		act := tt.in.SortByConfident()
+		if !reflect.DeepEqual(tt.out, act) {
+			t.Errorf("\nexpected: %v\n  actual: %v\n", tt.out, act)
+		}
+	}
+}
+
+func TestDistroAdvisories_AppendIfMissing(t *testing.T) {
+	type args struct {
+		adv *DistroAdvisory
+	}
+	tests := []struct {
+		name  string
+		advs  DistroAdvisories
+		args  args
+		want  bool
+		after DistroAdvisories
+	}{
+		{
+			name: "duplicate no append",
+			advs: DistroAdvisories{
+				DistroAdvisory{
+					AdvisoryID: "ALASs-2019-1214",
+				}},
+			args: args{
+				adv: &DistroAdvisory{
+					AdvisoryID: "ALASs-2019-1214",
+				},
+			},
+			want: false,
+			after: DistroAdvisories{
+				DistroAdvisory{
+					AdvisoryID: "ALASs-2019-1214",
+				}},
+		},
+		{
+			name: "append",
+			advs: DistroAdvisories{
+				DistroAdvisory{
+					AdvisoryID: "ALASs-2019-1214",
+				}},
+			args: args{
+				adv: &DistroAdvisory{
+					AdvisoryID: "ALASs-2019-1215",
+				},
+			},
+			want: true,
+			after: DistroAdvisories{
+				{
+					AdvisoryID: "ALASs-2019-1214",
+				},
+				{
+					AdvisoryID: "ALASs-2019-1215",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.advs.AppendIfMissing(tt.args.adv); got != tt.want {
+				t.Errorf("DistroAdvisories.AppendIfMissing() = %v, want %v", got, tt.want)
+			}
+			if !reflect.DeepEqual(tt.advs, tt.after) {
+				t.Errorf("\nexpected: %v\n  actual: %v\n", tt.after, tt.advs)
+			}
+		})
 	}
 }

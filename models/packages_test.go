@@ -1,19 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
 package models
 
 import (
@@ -130,6 +114,64 @@ func TestAddBinaryName(t *testing.T) {
 		tt.in.AddBinaryName(tt.name)
 		if !reflect.DeepEqual(tt.in, tt.expected) {
 			t.Errorf("expected %#v, actual %#v", tt.in, tt.expected)
+		}
+	}
+}
+
+func TestFindByBinName(t *testing.T) {
+	var tests = []struct {
+		in       SrcPackages
+		name     string
+		expected *SrcPackage
+		ok       bool
+	}{
+		{
+			in: map[string]SrcPackage{
+				"packA": {
+					Name:        "srcA",
+					BinaryNames: []string{"binA"},
+					Version:     "1.0.0",
+				},
+				"packB": {
+					Name:        "srcB",
+					BinaryNames: []string{"binB"},
+					Version:     "2.0.0",
+				},
+			},
+			name: "binA",
+			expected: &SrcPackage{
+				Name:        "srcA",
+				BinaryNames: []string{"binA"},
+				Version:     "1.0.0",
+			},
+			ok: true,
+		},
+		{
+			in: map[string]SrcPackage{
+				"packA": {
+					Name:        "srcA",
+					BinaryNames: []string{"binA"},
+					Version:     "1.0.0",
+				},
+				"packB": {
+					Name:        "srcB",
+					BinaryNames: []string{"binB"},
+					Version:     "2.0.0",
+				},
+			},
+			name:     "nobin",
+			expected: nil,
+			ok:       false,
+		},
+	}
+
+	for i, tt := range tests {
+		act, ok := tt.in.FindByBinName(tt.name)
+		if ok != tt.ok {
+			t.Errorf("[%d] expected %#v, actual %#v", i, tt.in, tt.expected)
+		}
+		if act != nil && !reflect.DeepEqual(*tt.expected, *act) {
+			t.Errorf("[%d] expected %#v, actual %#v", i, tt.in, tt.expected)
 		}
 	}
 }

@@ -1,20 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package oval
 
 import (
@@ -25,6 +8,7 @@ import (
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
+	"github.com/kotakanbe/goval-dictionary/db"
 	ovalmodels "github.com/kotakanbe/goval-dictionary/models"
 )
 
@@ -34,20 +18,20 @@ type RedHatBase struct {
 }
 
 // FillWithOval returns scan result after updating CVE info by OVAL
-func (o RedHatBase) FillWithOval(r *models.ScanResult) (err error) {
+func (o RedHatBase) FillWithOval(driver db.DB, r *models.ScanResult) (nCVEs int, err error) {
 	var relatedDefs ovalResult
-	if o.isFetchViaHTTP() {
+	if config.Conf.OvalDict.IsFetchViaHTTP() {
 		if relatedDefs, err = getDefsByPackNameViaHTTP(r); err != nil {
-			return err
+			return 0, err
 		}
 	} else {
-		if relatedDefs, err = getDefsByPackNameFromOvalDB(r); err != nil {
-			return err
+		if relatedDefs, err = getDefsByPackNameFromOvalDB(driver, r); err != nil {
+			return 0, err
 		}
 	}
 
 	for _, defPacks := range relatedDefs.entries {
-		o.update(r, defPacks)
+		nCVEs += o.update(r, defPacks)
 	}
 
 	for _, vuln := range r.ScannedCves {
@@ -64,7 +48,8 @@ func (o RedHatBase) FillWithOval(r *models.ScanResult) (err error) {
 			}
 		}
 	}
-	return nil
+
+	return nCVEs, nil
 }
 
 var kernelRelatedPackNames = map[string]bool{
@@ -94,11 +79,11 @@ var kernelRelatedPackNames = map[string]bool{
 	"kernel-tools":            true,
 	"kernel-tools-libs":       true,
 	"kernel-tools-libs-devel": true,
-	"perf":        true,
-	"python-perf": true,
+	"perf":                    true,
+	"python-perf":             true,
 }
 
-func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
+func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) (nCVEs int) {
 	ctype := models.NewCveContentType(o.family)
 	for _, cve := range defPacks.def.Advisory.Cves {
 		ovalContent := *o.convertToModel(cve.CveID, &defPacks.def)
@@ -107,16 +92,16 @@ func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
 			util.Log.Debugf("%s is newly detected by OVAL", cve.CveID)
 			vinfo = models.VulnInfo{
 				CveID:       cve.CveID,
-				Confidence:  models.OvalMatch,
+				Confidences: models.Confidences{models.OvalMatch},
 				CveContents: models.NewCveContents(ovalContent),
 			}
+			nCVEs++
 		} else {
 			cveContents := vinfo.CveContents
 			if v, ok := vinfo.CveContents[ctype]; ok {
 				if v.LastModified.After(ovalContent.LastModified) {
-					util.Log.Debugf("%s, OvalID: %s ignroed: ",
+					util.Log.Debugf("%s, OvalID: %d ignroed: ",
 						cve.CveID, defPacks.def.ID)
-					continue
 				} else {
 					util.Log.Debugf("%s OVAL will be overwritten", cve.CveID)
 				}
@@ -125,21 +110,41 @@ func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
 				cveContents = models.CveContents{}
 			}
 
-			if vinfo.Confidence.Score < models.OvalMatch.Score {
-				vinfo.Confidence = models.OvalMatch
-			}
+			vinfo.Confidences.AppendIfMissing(models.OvalMatch)
 			cveContents[ctype] = ovalContent
 			vinfo.CveContents = cveContents
 		}
 
+		vinfo.DistroAdvisories.AppendIfMissing(
+			o.convertToDistroAdvisory(&defPacks.def))
+
 		// uniq(vinfo.PackNames + defPacks.actuallyAffectedPackNames)
 		for _, pack := range vinfo.AffectedPackages {
-			notFixedYet, _ := defPacks.actuallyAffectedPackNames[pack.Name]
-			defPacks.actuallyAffectedPackNames[pack.Name] = notFixedYet
+			if nfy, ok := defPacks.actuallyAffectedPackNames[pack.Name]; !ok {
+				defPacks.actuallyAffectedPackNames[pack.Name] = pack.NotFixedYet
+			} else if nfy {
+				defPacks.actuallyAffectedPackNames[pack.Name] = true
+			}
 		}
-		vinfo.AffectedPackages = defPacks.toPackStatuses(r.Family)
+		vinfo.AffectedPackages = defPacks.toPackStatuses()
 		vinfo.AffectedPackages.Sort()
 		r.ScannedCves[cve.CveID] = vinfo
+	}
+	return
+}
+
+func (o RedHatBase) convertToDistroAdvisory(def *ovalmodels.Definition) *models.DistroAdvisory {
+	advisoryID := def.Title
+	if (o.family == config.RedHat || o.family == config.CentOS) && len(advisoryID) > 0 {
+		ss := strings.Fields(def.Title)
+		advisoryID = strings.TrimSuffix(ss[0], ":")
+	}
+	return &models.DistroAdvisory{
+		AdvisoryID:  advisoryID,
+		Severity:    def.Advisory.Severity,
+		Issued:      def.Advisory.Issued,
+		Updated:     def.Advisory.Updated,
+		Description: def.Description,
 	}
 }
 
@@ -165,20 +170,32 @@ func (o RedHatBase) convertToModel(cveID string, def *ovalmodels.Definition) *mo
 			severity = cve.Impact
 		}
 
+		sev2, sev3 := "", ""
+		if score2 == 0 {
+			sev2 = severity
+		}
+		if score3 == 0 {
+			sev3 = severity
+		}
+
+		// CWE-ID in RedHat OVAL may have multiple cweIDs separated by space
+		cwes := strings.Fields(cve.Cwe)
+
 		return &models.CveContent{
-			Type:         models.NewCveContentType(o.family),
-			CveID:        cve.CveID,
-			Title:        def.Title,
-			Summary:      def.Description,
-			Severity:     severity,
-			Cvss2Score:   score2,
-			Cvss2Vector:  vec2,
-			Cvss3Score:   score3,
-			Cvss3Vector:  vec3,
-			References:   refs,
-			CweID:        cve.Cwe,
-			Published:    def.Advisory.Issued,
-			LastModified: def.Advisory.Updated,
+			Type:          models.NewCveContentType(o.family),
+			CveID:         cve.CveID,
+			Title:         def.Title,
+			Summary:       def.Description,
+			Cvss2Score:    score2,
+			Cvss2Vector:   vec2,
+			Cvss2Severity: sev2,
+			Cvss3Score:    score3,
+			Cvss3Vector:   vec3,
+			Cvss3Severity: sev3,
+			References:    refs,
+			CweIDs:        cwes,
+			Published:     def.Advisory.Issued,
+			LastModified:  def.Advisory.Updated,
 		}
 	}
 	return nil
@@ -207,7 +224,7 @@ func (o RedHatBase) parseCvss3(scoreVector string) (score float64, vector string
 		if score, err = strconv.ParseFloat(ss[0], 64); err != nil {
 			return 0, ""
 		}
-		return score, strings.Join(ss[1:], "/")
+		return score, fmt.Sprintf("CVSS:3.0/%s", ss[1])
 	}
 	return 0, ""
 }
@@ -255,6 +272,23 @@ func NewOracle() Oracle {
 		RedHatBase{
 			Base{
 				family: config.Oracle,
+			},
+		},
+	}
+}
+
+// Amazon is the interface for RedhatBase OVAL
+type Amazon struct {
+	// Base
+	RedHatBase
+}
+
+// NewAmazon creates OVAL client for Amazon Linux
+func NewAmazon() Amazon {
+	return Amazon{
+		RedHatBase{
+			Base{
+				family: config.Amazon,
 			},
 		},
 	}

@@ -1,20 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package report
 
 import (
@@ -26,13 +9,14 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
 	"github.com/google/subcommands"
 	"github.com/gosuri/uitable"
 	"github.com/jroimartin/gocui"
-	log "github.com/sirupsen/logrus"
 )
 
 var scanResults models.ScanResults
@@ -52,18 +36,16 @@ func RunTui(results models.ScanResults) subcommands.ExitStatus {
 		return scanResults[i].ServerName < scanResults[j].ServerName
 	})
 
-	// g, err := gocui.NewGui(gocui.OutputNormal)
-	g := gocui.NewGui()
-	if err := g.Init(); err != nil {
-		log.Errorf("%s", err)
+	g, err := gocui.NewGui(gocui.OutputNormal)
+	if err != nil {
+		util.Log.Errorf("%+v", err)
 		return subcommands.ExitFailure
 	}
 	defer g.Close()
 
-	g.SetLayout(layout)
-	// g.SetManagerFunc(layout)
+	g.SetManagerFunc(layout)
 	if err := keybindings(g); err != nil {
-		log.Errorf("%s", err)
+		util.Log.Errorf("%+v", err)
 		return subcommands.ExitFailure
 	}
 	g.SelBgColor = gocui.ColorGreen
@@ -72,7 +54,7 @@ func RunTui(results models.ScanResults) subcommands.ExitStatus {
 
 	if err := g.MainLoop(); err != nil {
 		g.Close()
-		log.Errorf("%s", err)
+		util.Log.Errorf("%+v", err)
 		os.Exit(1)
 	}
 	return subcommands.ExitSuccess
@@ -186,19 +168,19 @@ func nextView(g *gocui.Gui, v *gocui.View) error {
 	var err error
 
 	if v == nil {
-		err = g.SetCurrentView("side")
+		_, err = g.SetCurrentView("side")
 	}
 	switch v.Name() {
 	case "side":
-		err = g.SetCurrentView("summary")
+		_, err = g.SetCurrentView("summary")
 	case "summary":
-		err = g.SetCurrentView("detail")
+		_, err = g.SetCurrentView("detail")
 	case "detail":
-		err = g.SetCurrentView("changelog")
+		_, err = g.SetCurrentView("changelog")
 	case "changelog":
-		err = g.SetCurrentView("side")
+		_, err = g.SetCurrentView("side")
 	default:
-		err = g.SetCurrentView("summary")
+		_, err = g.SetCurrentView("summary")
 	}
 	return err
 }
@@ -207,19 +189,19 @@ func previousView(g *gocui.Gui, v *gocui.View) error {
 	var err error
 
 	if v == nil {
-		err = g.SetCurrentView("side")
+		_, err = g.SetCurrentView("side")
 	}
 	switch v.Name() {
 	case "side":
-		err = g.SetCurrentView("side")
+		_, err = g.SetCurrentView("side")
 	case "summary":
-		err = g.SetCurrentView("side")
+		_, err = g.SetCurrentView("side")
 	case "detail":
-		err = g.SetCurrentView("summary")
+		_, err = g.SetCurrentView("summary")
 	case "changelog":
-		err = g.SetCurrentView("detail")
+		_, err = g.SetCurrentView("detail")
 	default:
-		err = g.SetCurrentView("side")
+		_, err = g.SetCurrentView("side")
 	}
 	return err
 }
@@ -402,7 +384,7 @@ func cursorPageUp(g *gocui.Gui, v *gocui.View) error {
 func previousSummary(g *gocui.Gui, v *gocui.View) error {
 	if v != nil {
 		// cursor to summary
-		if err := g.SetCurrentView("summary"); err != nil {
+		if _, err := g.SetCurrentView("summary"); err != nil {
 			return err
 		}
 		// move next line
@@ -410,7 +392,7 @@ func previousSummary(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		// cursor to detail
-		if err := g.SetCurrentView("detail"); err != nil {
+		if _, err := g.SetCurrentView("detail"); err != nil {
 			return err
 		}
 	}
@@ -420,7 +402,7 @@ func previousSummary(g *gocui.Gui, v *gocui.View) error {
 func nextSummary(g *gocui.Gui, v *gocui.View) error {
 	if v != nil {
 		// cursor to summary
-		if err := g.SetCurrentView("summary"); err != nil {
+		if _, err := g.SetCurrentView("summary"); err != nil {
 			return err
 		}
 		// move next line
@@ -428,7 +410,7 @@ func nextSummary(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		// cursor to detail
-		if err := g.SetCurrentView("detail"); err != nil {
+		if _, err := g.SetCurrentView("detail"); err != nil {
 			return err
 		}
 	}
@@ -468,10 +450,7 @@ func changeHost(g *gocui.Gui, v *gocui.View) error {
 	if err := setDetailLayout(g); err != nil {
 		return err
 	}
-	if err := setChangelogLayout(g); err != nil {
-		return err
-	}
-	return nil
+	return setChangelogLayout(g)
 }
 
 func redrawDetail(g *gocui.Gui) error {
@@ -479,10 +458,7 @@ func redrawDetail(g *gocui.Gui) error {
 		return err
 	}
 
-	if err := setDetailLayout(g); err != nil {
-		return err
-	}
-	return nil
+	return setDetailLayout(g)
 }
 
 func redrawChangelog(g *gocui.Gui) error {
@@ -490,10 +466,7 @@ func redrawChangelog(g *gocui.Gui) error {
 		return err
 	}
 
-	if err := setChangelogLayout(g); err != nil {
-		return err
-	}
-	return nil
+	return setChangelogLayout(g)
 }
 
 func getLine(g *gocui.Gui, v *gocui.View) error {
@@ -511,7 +484,7 @@ func getLine(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		fmt.Fprintln(v, l)
-		if err := g.SetCurrentView("msg"); err != nil {
+		if _, err := g.SetCurrentView("msg"); err != nil {
 			return err
 		}
 	}
@@ -534,7 +507,7 @@ func showMsg(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		fmt.Fprintln(v, l)
-		if err := g.SetCurrentView("msg"); err != nil {
+		if _, err := g.SetCurrentView("msg"); err != nil {
 			return err
 		}
 	}
@@ -545,10 +518,8 @@ func delMsg(g *gocui.Gui, v *gocui.View) error {
 	if err := g.DeleteView("msg"); err != nil {
 		return err
 	}
-	if err := g.SetCurrentView("summary"); err != nil {
-		return err
-	}
-	return nil
+	_, err := g.SetCurrentView("summary")
+	return err
 }
 
 func quit(g *gocui.Gui, v *gocui.View) error {
@@ -565,11 +536,7 @@ func layout(g *gocui.Gui) error {
 	if err := setDetailLayout(g); err != nil {
 		return err
 	}
-	if err := setChangelogLayout(g); err != nil {
-		return err
-	}
-
-	return nil
+	return setChangelogLayout(g)
 }
 
 func debug(g *gocui.Gui, str string) error {
@@ -597,11 +564,11 @@ func setSideLayout(g *gocui.Gui) error {
 			fmt.Fprintln(v, result.ServerInfoTui())
 		}
 		if len(scanResults) == 0 {
-			return fmt.Errorf("No scan results")
+			return xerrors.New("No scan results")
 		}
 		currentScanResult = scanResults[0]
 		vinfos = scanResults[0].ScannedCves.ToSortedSlice()
-		if err := g.SetCurrentView("side"); err != nil {
+		if _, err := g.SetCurrentView("side"); err != nil {
 			return err
 		}
 	}
@@ -615,7 +582,7 @@ func setSummaryLayout(g *gocui.Gui) error {
 			return err
 		}
 
-		lines := summaryLines()
+		lines := summaryLines(currentScanResult)
 		fmt.Fprintf(v, lines)
 
 		v.Highlight = true
@@ -625,37 +592,51 @@ func setSummaryLayout(g *gocui.Gui) error {
 	return nil
 }
 
-func summaryLines() string {
+func summaryLines(r models.ScanResult) string {
 	stable := uitable.New()
 	stable.MaxColWidth = 1000
 	stable.Wrap = false
 
-	if len(currentScanResult.Errors) != 0 {
+	if len(r.Errors) != 0 {
 		return "Error: Scan with --debug to view the details"
 	}
 
 	indexFormat := ""
-	if len(currentScanResult.ScannedCves) < 10 {
+	if len(r.ScannedCves) < 10 {
 		indexFormat = "[%1d]"
-	} else if len(currentScanResult.ScannedCves) < 100 {
+	} else if len(r.ScannedCves) < 100 {
 		indexFormat = "[%2d]"
 	} else {
 		indexFormat = "[%3d]"
 	}
 
-	for i, vinfo := range vinfos {
-		summary := vinfo.Titles(
-			config.Conf.Lang, currentScanResult.Family)[0].Value
-		cvssScore := fmt.Sprintf("| %4.1f",
-			vinfo.MaxCvssScore().Value.Score)
+	for i, vinfo := range r.ScannedCves.ToSortedSlice() {
+		max := vinfo.MaxCvssScore().Value.Score
+		cvssScore := "|     "
+		if 0 < max {
+			cvssScore = fmt.Sprintf("| %4.1f", max)
+		}
+
+		pkgNames := vinfo.AffectedPackages.Names()
+		pkgNames = append(pkgNames, vinfo.CpeURIs...)
+		pkgNames = append(pkgNames, vinfo.GitHubSecurityAlerts.Names()...)
+		pkgNames = append(pkgNames, vinfo.WpPackageFixStats.Names()...)
+
+		exploits := ""
+		if 0 < len(vinfo.Exploits) {
+			exploits = "POC"
+		}
 
 		var cols []string
 		cols = []string{
 			fmt.Sprintf(indexFormat, i+1),
 			vinfo.CveID,
-			cvssScore,
-			fmt.Sprintf("| %3d |", vinfo.Confidence.Score),
-			summary,
+			cvssScore + " |",
+			fmt.Sprintf("%4s |", vinfo.AttackVector()),
+			fmt.Sprintf("%3s |", exploits),
+			fmt.Sprintf("%6s |", vinfo.AlertDict.FormatSource()),
+			fmt.Sprintf("%7s |", vinfo.PatchStatus(r.Packages)),
+			strings.Join(pkgNames, ", "),
 		}
 		icols := make([]interface{}, len(cols))
 		for j := range cols {
@@ -695,16 +676,12 @@ func setDetailLayout(g *gocui.Gui) error {
 }
 
 func setChangelogLayout(g *gocui.Gui) error {
-	maxX, maxY := g.Size()
-
 	summaryView, err := g.View("summary")
 	if err != nil {
 		return err
 	}
-	_, cy := summaryView.Cursor()
-	_, oy := summaryView.Origin()
-	currentVinfo = cy + oy
 
+	maxX, maxY := g.Size()
 	if v, err := g.SetView("changelog", int(float64(maxX)*0.5), int(float64(maxY)*0.2), maxX, maxY); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -713,17 +690,136 @@ func setChangelogLayout(g *gocui.Gui) error {
 			return nil
 		}
 
-		lines := []string{}
+		lines := []string{
+			"Affected Packages, Processes",
+			"============================",
+		}
+
+		_, cy := summaryView.Cursor()
+		_, oy := summaryView.Origin()
+		currentVinfo = cy + oy
 		vinfo := vinfos[currentVinfo]
+		vinfo.AffectedPackages.Sort()
+		for _, affected := range vinfo.AffectedPackages {
+			// packages detected by OVAL may not be actually installed
+			if pack, ok := currentScanResult.Packages[affected.Name]; ok {
+				var line string
+				if pack.Repository != "" {
+					line = fmt.Sprintf("* %s (%s)",
+						pack.FormatVersionFromTo(affected.NotFixedYet, affected.FixState),
+						pack.Repository)
+				} else {
+					line = fmt.Sprintf("* %s",
+						pack.FormatVersionFromTo(affected.NotFixedYet, affected.FixState),
+					)
+				}
+				lines = append(lines, line)
+
+				if len(pack.AffectedProcs) != 0 {
+					for _, p := range pack.AffectedProcs {
+						lines = append(lines, fmt.Sprintf("  * PID: %s %s Port: %s",
+							p.PID, p.Name, p.ListenPorts))
+					}
+				} else {
+					// lines = append(lines, fmt.Sprintf("  * No affected process"))
+				}
+			}
+		}
+		sort.Strings(vinfo.CpeURIs)
+		for _, uri := range vinfo.CpeURIs {
+			lines = append(lines, "* "+uri)
+		}
+
+		for _, alert := range vinfo.GitHubSecurityAlerts {
+			lines = append(lines, "* "+alert.PackageName)
+		}
+
+		r := currentScanResult
+		// check wordpress fixedin
+		if r.WordPressPackages != nil {
+			for _, wp := range vinfo.WpPackageFixStats {
+				if p, ok := r.WordPressPackages.Find(wp.Name); ok {
+					if p.Type == models.WPCore {
+						lines = append(lines, fmt.Sprintf("* %s-%s, FixedIn: %s",
+							wp.Name, p.Version, wp.FixedIn))
+					} else {
+						lines = append(lines,
+							fmt.Sprintf("* %s-%s, Update: %s, FixedIn: %s, %s",
+								wp.Name, p.Version, p.Update, wp.FixedIn, p.Status))
+					}
+				} else {
+					lines = append(lines, fmt.Sprintf("* %s", wp.Name))
+				}
+			}
+		}
+
+		// check library fixedin
+		for _, scanner := range r.LibraryScanners {
+			key := scanner.GetLibraryKey()
+			for _, fixedin := range vinfo.LibraryFixedIns {
+				for _, lib := range scanner.Libs {
+					if fixedin.Key == key && lib.Name == fixedin.Name {
+						lines = append(lines, fmt.Sprintf("* %s-%s, FixedIn: %s",
+							lib.Name, lib.Version, fixedin.FixedIn))
+						continue
+					}
+				}
+			}
+		}
+
 		for _, adv := range vinfo.DistroAdvisories {
+			lines = append(lines, "\n",
+				"Advisories",
+				"==========",
+			)
 			lines = append(lines, adv.Format())
 		}
 
-		for _, affected := range vinfo.AffectedPackages {
-			pack := currentScanResult.Packages[affected.Name]
-			for _, p := range currentScanResult.Packages {
-				if pack.Name == p.Name {
-					lines = append(lines, p.FormatChangelog(), "\n")
+		if len(vinfo.Exploits) != 0 {
+			lines = append(lines, "\n",
+				"Exploit Codes",
+				"=============",
+			)
+			for _, exploit := range vinfo.Exploits {
+				lines = append(lines, fmt.Sprintf("* [%s](%s)", exploit.Description, exploit.URL))
+			}
+		}
+
+		if len(vinfo.AlertDict.En) > 0 {
+			lines = append(lines, "\n",
+				"USCERT Alert",
+				"=============",
+			)
+			for _, alert := range vinfo.AlertDict.En {
+				lines = append(lines, fmt.Sprintf("* [%s](%s)", alert.Title, alert.URL))
+			}
+		}
+
+		if len(vinfo.AlertDict.Ja) > 0 {
+			lines = append(lines, "\n",
+				"JPCERT Alert",
+				"=============",
+			)
+			for _, alert := range vinfo.AlertDict.Ja {
+				if config.Conf.Lang == "ja" {
+					lines = append(lines, fmt.Sprintf("* [%s](%s)", alert.Title, alert.URL))
+				} else {
+					lines = append(lines, fmt.Sprintf("* [JPCERT](%s)", alert.URL))
+				}
+			}
+		}
+
+		if currentScanResult.IsDeepScanMode() {
+			lines = append(lines, "\n",
+				"ChangeLogs",
+				"==========",
+			)
+			for _, affected := range vinfo.AffectedPackages {
+				pack := currentScanResult.Packages[affected.Name]
+				for _, p := range currentScanResult.Packages {
+					if pack.Name == p.Name {
+						lines = append(lines, p.FormatChangelog(), "\n")
+					}
 				}
 			}
 		}
@@ -740,13 +836,16 @@ func setChangelogLayout(g *gocui.Gui) error {
 type dataForTmpl struct {
 	CveID            string
 	Cvsses           string
+	Exploits         []models.Exploit
 	Summary          string
-	Confidence       models.Confidence
-	Cwes             []models.CveContentStr
+	Mitigation       string
+	Confidences      models.Confidences
+	Cwes             []models.CweDictEntry
+	Alerts           []models.Alert
 	Links            []string
 	References       []models.Reference
 	Packages         []string
-	CpeNames         []string
+	CpeURIs          []string
 	PublishedDate    time.Time
 	LastModifiedDate time.Time
 }
@@ -767,24 +866,13 @@ func detailLines() (string, error) {
 	}
 
 	vinfo := vinfos[currentVinfo]
-
-	packsVer := []string{}
-	vinfo.AffectedPackages.Sort()
-	for _, affected := range vinfo.AffectedPackages {
-		// packages detected by OVAL may not be actually installed
-		if pack, ok := r.Packages[affected.Name]; ok {
-			packsVer = append(packsVer, pack.FormatVersionFromTo(affected.NotFixedYet))
-		}
+	links := []string{}
+	if strings.HasPrefix(vinfo.CveID, "CVE-") {
+		links = append(links, vinfo.CveContents.SourceLinks(
+			config.Conf.Lang, r.Family, vinfo.CveID)[0].Value,
+			vinfo.Cvss2CalcURL(),
+			vinfo.Cvss3CalcURL())
 	}
-	sort.Strings(vinfo.CpeNames)
-	for _, name := range vinfo.CpeNames {
-		packsVer = append(packsVer, name)
-	}
-
-	links := []string{vinfo.CveContents.SourceLinks(
-		config.Conf.Lang, r.Family, vinfo.CveID)[0].Value,
-		vinfo.Cvss2CalcURL(),
-		vinfo.Cvss3CalcURL()}
 	for _, url := range vinfo.VendorLinks(r.Family) {
 		links = append(links, url)
 	}
@@ -792,35 +880,57 @@ func detailLines() (string, error) {
 	refs := []models.Reference{}
 	for _, rr := range vinfo.CveContents.References(r.Family) {
 		for _, ref := range rr.Value {
+			if ref.Source == "" {
+				ref.Source = "-"
+			}
 			refs = append(refs, ref)
 		}
 	}
 
 	summary := vinfo.Summaries(r.Lang, r.Family)[0]
+	mitigation := vinfo.Mitigations(r.Family)[0]
 
 	table := uitable.New()
 	table.MaxColWidth = maxColWidth
 	table.Wrap = true
-	scores := append(vinfo.Cvss3Scores(), vinfo.Cvss2Scores()...)
+	scores := append(vinfo.Cvss3Scores(), vinfo.Cvss2Scores(r.Family)...)
 	var cols []interface{}
 	for _, score := range scores {
+		if score.Value.Score == 0 && score.Value.Severity == "" {
+			continue
+		}
+		scoreStr := "-"
+		if 0 < score.Value.Score {
+			scoreStr = fmt.Sprintf("%3.1f", score.Value.Score)
+		}
+		scoreVec := fmt.Sprintf("%s/%s", scoreStr, score.Value.Vector)
 		cols = []interface{}{
+			scoreVec,
 			score.Value.Severity,
-			score.Value.Format(),
 			score.Type,
 		}
 		table.AddRow(cols...)
 	}
 
+	uniqCweIDs := vinfo.CveContents.UniqCweIDs(r.Family)
+	cwes := []models.CweDictEntry{}
+	for _, cweID := range uniqCweIDs {
+		if strings.HasPrefix(cweID.Value, "CWE-") {
+			if dict, ok := r.CweDict[strings.TrimPrefix(cweID.Value, "CWE-")]; ok {
+				cwes = append(cwes, dict)
+			}
+		}
+	}
+
 	data := dataForTmpl{
-		CveID:      vinfo.CveID,
-		Cvsses:     fmt.Sprintf("%s\n", table),
-		Summary:    fmt.Sprintf("%s (%s)", summary.Value, summary.Type),
-		Confidence: vinfo.Confidence,
-		Cwes:       vinfo.CveContents.CweIDs(r.Family),
-		Links:      util.Distinct(links),
-		Packages:   packsVer,
-		References: refs,
+		CveID:       vinfo.CveID,
+		Cvsses:      fmt.Sprintf("%s\n", table),
+		Summary:     fmt.Sprintf("%s (%s)", summary.Value, summary.Type),
+		Mitigation:  fmt.Sprintf("%s (%s)", mitigation.Value, mitigation.Type),
+		Confidences: vinfo.Confidences,
+		Cwes:        cwes,
+		Links:       util.Distinct(links),
+		References:  refs,
 	}
 
 	buf := bytes.NewBuffer(nil) // create empty buffer
@@ -833,47 +943,42 @@ func detailLines() (string, error) {
 
 const mdTemplate = `
 {{.CveID}}
-==============
+================
 
 CVSS Scores
---------------
+-----------
 {{.Cvsses }}
 
 Summary
---------------
+-----------
  {{.Summary }}
 
+Mitigation
+-----------
+ {{.Mitigation }}
 
 Links
---------------
+-----------
 {{range $link := .Links -}}
 * {{$link}}
 {{end}}
-
 CWE
---------------
+-----------
 {{range .Cwes -}}
-* {{.Value}} ({{.Type}})
+* {{.En.CweID}} [{{.En.Name}}](https://cwe.mitre.org/data/definitions/{{.En.CweID}}.html)
 {{end}}
-
-Package/CPE
---------------
-{{range $pack := .Packages -}}
-* {{$pack}}
-{{end -}}
-{{range $name := .CpeNames -}}
+{{range $name := .CpeURIs -}}
 * {{$name}}
 {{end}}
-
 Confidence
---------------
- {{.Confidence }}
-
-
+-----------
+{{range $confidence := .Confidences -}}
+* {{$confidence.DetectionMethod}}
+{{end}}
 References
---------------
+-----------
 {{range .References -}}
-* [{{.Source}}]( {{.Link}} )
+* [{{.Source}}]({{.Link}})
 {{end}}
 
 `

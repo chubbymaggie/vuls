@@ -1,27 +1,12 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package commands
 
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/subcommands"
 
@@ -33,19 +18,8 @@ import (
 // ConfigtestCmd is Subcommand
 type ConfigtestCmd struct {
 	configPath     string
-	logDir         string
 	askKeyPassword bool
-	containersOnly bool
-	sshNative      bool
-	httpProxy      string
 	timeoutSec     int
-
-	fast    bool
-	offline bool
-	deep    bool
-
-	debug bool
-	vvv   bool
 }
 
 // Name return subcommand name
@@ -58,9 +32,6 @@ func (*ConfigtestCmd) Synopsis() string { return "Test configuration" }
 func (*ConfigtestCmd) Usage() string {
 	return `configtest:
 	configtest
-			[-fast]
-			[-offline]
-			[-deep]
 			[-config=/path/to/config.toml]
 			[-log-dir=/path/to/log]
 			[-ask-key-password]
@@ -82,64 +53,37 @@ func (p *ConfigtestCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.configPath, "config", defaultConfPath, "/path/to/toml")
 
 	defaultLogDir := util.GetDefaultLogDir()
-	f.StringVar(&p.logDir, "log-dir", defaultLogDir, "/path/to/log")
-
-	f.BoolVar(&p.debug, "debug", false, "debug mode")
+	f.StringVar(&c.Conf.LogDir, "log-dir", defaultLogDir, "/path/to/log")
+	f.BoolVar(&c.Conf.Debug, "debug", false, "debug mode")
 
 	f.IntVar(&p.timeoutSec, "timeout", 5*60, "Timeout(Sec)")
 
-	f.BoolVar(
-		&p.askKeyPassword,
-		"ask-key-password",
-		false,
+	f.BoolVar(&p.askKeyPassword, "ask-key-password", false,
 		"Ask ssh privatekey password before scanning",
 	)
 
-	f.BoolVar(
-		&p.fast,
-		"fast",
-		false,
-		"Config test for online fast scan mode")
+	f.StringVar(&c.Conf.HTTPProxy, "http-proxy", "",
+		"http://proxy-url:port (default: empty)")
 
-	f.BoolVar(
-		&p.offline,
-		"offline",
-		false,
-		"Config test for offline scan mode")
-
-	f.BoolVar(&p.deep, "deep", false, "Config test for deep scan mode")
-
-	f.StringVar(
-		&p.httpProxy,
-		"http-proxy",
-		"",
-		"http://proxy-url:port (default: empty)",
-	)
-
-	f.BoolVar(
-		&p.sshNative,
-		"ssh-native-insecure",
-		false,
+	f.BoolVar(&c.Conf.SSHNative, "ssh-native-insecure", false,
 		"Use Native Go implementation of SSH. Default: Use the external command")
 
-	f.BoolVar(
-		&p.containersOnly,
-		"containers-only",
-		false,
+	f.BoolVar(&c.Conf.SSHConfig, "ssh-config", false,
+		"Use SSH options specified in ssh_config preferentially")
+
+	f.BoolVar(&c.Conf.ContainersOnly, "containers-only", false,
 		"Test containers only. Default: Test both of hosts and containers")
 
-	f.BoolVar(&p.vvv, "vvv", false, "ssh -vvv")
+	f.BoolVar(&c.Conf.Vvv, "vvv", false, "ssh -vvv")
 }
 
 // Execute execute
 func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	// Setup Logger
-	c.Conf.Debug = p.debug
-	c.Conf.LogDir = p.logDir
 	util.Log = util.NewCustomLogger(c.ServerInfo{})
 
 	if err := mkdirDotVuls(); err != nil {
-		util.Log.Errorf("Failed to create .vuls: %s", err)
+		util.Log.Errorf("Failed to create .vuls. err: %+v", err)
 		return subcommands.ExitUsageError
 	}
 
@@ -155,22 +99,14 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 
 	err = c.Load(p.configPath, keyPass)
 	if err != nil {
-		util.Log.Errorf("Error loading %s, %s", p.configPath, err)
-		util.Log.Errorf("If you update Vuls and get this error, there may be incompatible changes in config.toml")
-		util.Log.Errorf("Please check README: https://github.com/future-architect/vuls#configuration")
+		msg := []string{
+			fmt.Sprintf("Error loading %s", p.configPath),
+			"If you update Vuls and get this error, there may be incompatible changes in config.toml",
+			"Please check config.toml template : https://vuls.io/docs/en/usage-settings.html",
+		}
+		util.Log.Errorf("%s\n%+v", strings.Join(msg, "\n"), err)
 		return subcommands.ExitUsageError
 	}
-	c.Conf.SSHNative = p.sshNative
-	c.Conf.HTTPProxy = p.httpProxy
-	c.Conf.ContainersOnly = p.containersOnly
-
-	c.Conf.Fast = p.fast
-	c.Conf.Offline = p.offline
-	c.Conf.Deep = p.deep
-	if !(c.Conf.Fast || c.Conf.Offline || c.Conf.Deep) {
-		c.Conf.Fast = true
-	}
-	c.Conf.Vvv = p.vvv
 
 	var servernames []string
 	if 0 < len(f.Args()) {
@@ -203,7 +139,13 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 
 	util.Log.Info("Detecting Server/Container OS... ")
 	if err := scan.InitServers(p.timeoutSec); err != nil {
-		util.Log.Errorf("Failed to init servers: %s", err)
+		util.Log.Errorf("Failed to init servers. err: %+v", err)
+		return subcommands.ExitFailure
+	}
+
+	util.Log.Info("Checking Scan Modes...")
+	if err := scan.CheckScanModes(); err != nil {
+		util.Log.Errorf("Fix config.toml. err: %+v", err)
 		return subcommands.ExitFailure
 	}
 
@@ -213,6 +155,10 @@ func (p *ConfigtestCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 	util.Log.Info("Checking sudo settings...")
 	scan.CheckIfSudoNoPasswd(p.timeoutSec)
 
-	scan.PrintSSHableServerNames()
-	return subcommands.ExitSuccess
+	util.Log.Info("It can be scanned with fast scan mode even if warn or err messages are displayed due to lack of dependent packages or sudo settings in fast-root or deep scan mode")
+
+	if scan.PrintSSHableServerNames() {
+		return subcommands.ExitSuccess
+	}
+	return subcommands.ExitFailure
 }

@@ -9,17 +9,18 @@ import (
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
+	"golang.org/x/xerrors"
 )
 
 // inherit OsTypeInterface
 type suse struct {
-	redhat
+	redhatBase
 }
 
 // NewRedhat is constructor
 func newSUSE(c config.ServerInfo) *suse {
 	r := &suse{
-		redhat: redhat{
+		redhatBase: redhatBase{
 			base: base{
 				osPackages: osPackages{
 					Packages:  models.Packages{},
@@ -34,31 +35,14 @@ func newSUSE(c config.ServerInfo) *suse {
 }
 
 // https://github.com/mizzy/specinfra/blob/master/lib/specinfra/helper/detect_os/suse.rb
-func detectSUSE(c config.ServerInfo) (itsMe bool, suse osTypeInterface) {
-	suse = newSUSE(c)
-
+func detectSUSE(c config.ServerInfo) (bool, osTypeInterface) {
+	s := newSUSE(c)
 	if r := exec(c, "ls /etc/os-release", noSudo); r.isSuccess() {
 		if r := exec(c, "zypper -V", noSudo); r.isSuccess() {
 			if r := exec(c, "cat /etc/os-release", noSudo); r.isSuccess() {
-				name := ""
-				if strings.Contains(r.Stdout, "ID=opensuse") {
-					//TODO check opensuse or opensuse.leap
-					name = config.OpenSUSE
-				} else if strings.Contains(r.Stdout, `NAME="SLES"`) {
-					name = config.SUSEEnterpriseServer
-				} else {
-					util.Log.Warn("Failed to parse SUSE edition: %s", r)
-					return true, suse
-				}
-
-				re := regexp.MustCompile(`VERSION_ID=\"(\d+\.\d+|\d+)\"`)
-				result := re.FindStringSubmatch(strings.TrimSpace(r.Stdout))
-				if len(result) != 2 {
-					util.Log.Warn("Failed to parse SUSE Linux version: %s", r)
-					return true, suse
-				}
-				suse.setDistro(name, result[1])
-				return true, suse
+				name, ver := s.parseOSRelease(r.Stdout)
+				s.setDistro(name, ver)
+				return true, s
 			}
 		}
 	} else if r := exec(c, "ls /etc/SuSE-release", noSudo); r.isSuccess() {
@@ -68,8 +52,8 @@ func detectSUSE(c config.ServerInfo) (itsMe bool, suse osTypeInterface) {
 				result := re.FindStringSubmatch(strings.TrimSpace(r.Stdout))
 				if len(result) == 2 {
 					//TODO check opensuse or opensuse.leap
-					suse.setDistro(config.OpenSUSE, result[1])
-					return true, suse
+					s.setDistro(config.OpenSUSE, result[1])
+					return true, s
 				}
 
 				re = regexp.MustCompile(`VERSION = (\d+)`)
@@ -79,21 +63,47 @@ func detectSUSE(c config.ServerInfo) (itsMe bool, suse osTypeInterface) {
 					re = regexp.MustCompile(`PATCHLEVEL = (\d+)`)
 					result = re.FindStringSubmatch(strings.TrimSpace(r.Stdout))
 					if len(result) == 2 {
-						suse.setDistro(config.SUSEEnterpriseServer,
+						s.setDistro(config.SUSEEnterpriseServer,
 							fmt.Sprintf("%s.%s", version, result[1]))
-						return true, suse
+						return true, s
 					}
 				}
-				util.Log.Warn("Failed to parse SUSE Linux version: %s", r)
-				return true, suse
+				util.Log.Warnf("Failed to parse SUSE Linux version: %s", r)
+				return true, s
 			}
 		}
 	}
 	util.Log.Debugf("Not SUSE Linux. servername: %s", c.ServerName)
-	return false, suse
+	return false, s
 }
 
-func (o *suse) checkDependencies() error {
+func (o *suse) parseOSRelease(content string) (name string, ver string) {
+	if strings.Contains(content, "ID=opensuse") {
+		//TODO check opensuse or opensuse.leap
+		name = config.OpenSUSE
+	} else if strings.Contains(content, `NAME="SLES"`) {
+		name = config.SUSEEnterpriseServer
+	} else if strings.Contains(content, `NAME="SLES_SAP"`) {
+		name = config.SUSEEnterpriseServer
+	} else {
+		util.Log.Warnf("Failed to parse SUSE edition: %s", content)
+		return "unknown", "unknown"
+	}
+
+	re := regexp.MustCompile(`VERSION_ID=\"(.+)\"`)
+	result := re.FindStringSubmatch(strings.TrimSpace(content))
+	if len(result) != 2 {
+		util.Log.Warnf("Failed to parse SUSE Linux version: %s", content)
+		return "unknown", "unknown"
+	}
+	return name, result[1]
+}
+
+func (o *suse) checkScanMode() error {
+	return nil
+}
+
+func (o *suse) checkDeps() error {
 	o.log.Infof("Dependencies... No need")
 	return nil
 }
@@ -111,43 +121,52 @@ func (o *suse) scanPackages() error {
 		return err
 	}
 
-	rebootRequired, err := o.rebootRequired()
+	o.Kernel.RebootRequired, err = o.rebootRequired()
 	if err != nil {
-		o.log.Errorf("Failed to detect the kernel reboot required: %s", err)
-		return err
+		err = xerrors.Errorf("Failed to detect the kernel reboot required: %w", err)
+		o.log.Warnf("err: %+v", err)
+		o.warns = append(o.warns, err)
+		// Only warning this error
 	}
-	o.Kernel.RebootRequired = rebootRequired
+
+	if o.getServerInfo().Mode.IsOffline() {
+		o.Packages = installed
+		return nil
+	}
 
 	updatable, err := o.scanUpdatablePackages()
 	if err != nil {
-		o.log.Errorf("Failed to scan updatable packages: %s", err)
-		return err
+		err = xerrors.Errorf("Failed to scan updatable packages: %w", err)
+		o.log.Warnf("err: %+v", err)
+		o.warns = append(o.warns, err)
+		// Only warning this error
+	} else {
+		installed.MergeNewVersion(updatable)
 	}
-	installed.MergeNewVersion(updatable)
-	o.Packages = installed
 
+	o.Packages = installed
 	return nil
 }
 
 func (o *suse) rebootRequired() (bool, error) {
-	r := o.exec("rpm -q --last kernel-default | head -n1", noSudo)
+	r := o.exec("rpm -q --last kernel-default", noSudo)
 	if !r.isSuccess() {
-		return false, fmt.Errorf("Failed to detect the last installed kernel : %v", r)
+		o.log.Warnf("Failed to detect the last installed kernel : %v", r)
+		// continue scanning
+		return false, nil
 	}
 	stdout := strings.Fields(r.Stdout)[0]
 	return !strings.Contains(stdout, strings.TrimSuffix(o.Kernel.Release, "-default")), nil
 }
 
 func (o *suse) scanUpdatablePackages() (models.Packages, error) {
-	cmd := ""
-	if v, _ := o.Distro.MajorVersion(); v < 12 {
-		cmd = "zypper -q lu"
-	} else {
-		cmd = "zypper --no-color -q lu"
+	cmd := "zypper -q lu"
+	if o.hasZypperColorOption() {
+		cmd = "zypper -q --no-color lu"
 	}
 	r := o.exec(cmd, noSudo)
 	if !r.isSuccess() {
-		return nil, fmt.Errorf("Failed to scan updatable packages: %v", r)
+		return nil, xerrors.Errorf("Failed to scan updatable packages: %v", r)
 	}
 	return o.parseZypperLULines(r.Stdout)
 }
@@ -171,15 +190,21 @@ func (o *suse) parseZypperLULines(stdout string) (models.Packages, error) {
 }
 
 func (o *suse) parseZypperLUOneLine(line string) (*models.Package, error) {
-	fs := strings.Fields(line)
-	if len(fs) != 11 {
-		return nil, fmt.Errorf("zypper -q lu Unknown format: %s", line)
+	ss := strings.Split(line, "|")
+	if len(ss) != 6 {
+		return nil, xerrors.Errorf("zypper -q lu Unknown format: %s", line)
 	}
-	available := strings.Split(fs[8], "-")
+	available := strings.Split(strings.TrimSpace(ss[4]), "-")
 	return &models.Package{
-		Name:       fs[4],
+		Name:       strings.TrimSpace(ss[2]),
 		NewVersion: available[0],
 		NewRelease: available[1],
-		Arch:       fs[10],
+		Arch:       strings.TrimSpace(ss[5]),
 	}, nil
+}
+
+func (o *suse) hasZypperColorOption() bool {
+	cmd := "zypper --help | grep color"
+	r := o.exec(util.PrependProxyEnv(cmd), noSudo)
+	return len(r.Stdout) > 0
 }

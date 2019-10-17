@@ -1,20 +1,3 @@
-/* Vuls - Vulnerability Scanner
-Copyright (C) 2016  Future Architect, Inc. Japan.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 package oval
 
 import (
@@ -23,22 +6,22 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/future-architect/vuls/config"
+	cnf "github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
 	"github.com/kotakanbe/goval-dictionary/db"
-	ovallog "github.com/kotakanbe/goval-dictionary/log"
 	"github.com/parnurzeal/gorequest"
+	"golang.org/x/xerrors"
 )
 
 // Client is the interface of OVAL client.
 type Client interface {
 	CheckHTTPHealth() error
-	FillWithOval(r *models.ScanResult) error
+	FillWithOval(db.DB, *models.ScanResult) (int, error)
 
 	// CheckIfOvalFetched checks if oval entries are in DB by family, release.
-	CheckIfOvalFetched(string, string) (bool, error)
-	CheckIfOvalFresh(string, string) (bool, error)
+	CheckIfOvalFetched(db.DB, string, string) (bool, error)
+	CheckIfOvalFresh(db.DB, string, string) (bool, error)
 }
 
 // Base is a base struct
@@ -48,86 +31,59 @@ type Base struct {
 
 // CheckHTTPHealth do health check
 func (b Base) CheckHTTPHealth() error {
-	if !b.isFetchViaHTTP() {
+	if !cnf.Conf.OvalDict.IsFetchViaHTTP() {
 		return nil
 	}
 
-	url := fmt.Sprintf("%s/health", config.Conf.OvalDBURL)
+	url := fmt.Sprintf("%s/health", cnf.Conf.OvalDict.URL)
 	var errs []error
 	var resp *http.Response
 	resp, _, errs = gorequest.New().Get(url).End()
 	//  resp, _, errs = gorequest.New().SetDebug(config.Conf.Debug).Get(url).End()
 	//  resp, _, errs = gorequest.New().Proxy(api.httpProxy).Get(url).End()
 	if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
-		return fmt.Errorf("Failed to request to OVAL server. url: %s, errs: %v",
+		return xerrors.Errorf("Failed to request to OVAL server. url: %s, errs: %w",
 			url, errs)
 	}
 	return nil
 }
 
 // CheckIfOvalFetched checks if oval entries are in DB by family, release.
-func (b Base) CheckIfOvalFetched(osFamily, release string) (fetched bool, err error) {
-	ovallog.Initialize(config.Conf.LogDir)
-	if !b.isFetchViaHTTP() {
-		var ovaldb db.DB
-		if ovaldb, err = db.NewDB(
-			osFamily,
-			config.Conf.OvalDBType,
-			config.Conf.OvalDBPath,
-			config.Conf.DebugSQL,
-		); err != nil {
-			return false, err
-		}
-		defer ovaldb.CloseDB()
-		count, err := ovaldb.CountDefs(osFamily, release)
+func (b Base) CheckIfOvalFetched(driver db.DB, osFamily, release string) (fetched bool, err error) {
+	if !cnf.Conf.OvalDict.IsFetchViaHTTP() {
+		count, err := driver.CountDefs(osFamily, release)
 		if err != nil {
-			return false, fmt.Errorf("Failed to count OVAL defs: %s, %s, %v",
-				osFamily, release, err)
+			return false, xerrors.Errorf("Failed to count OVAL defs: %s, %s, %w", osFamily, release, err)
 		}
 		return 0 < count, nil
 	}
 
-	url, _ := util.URLPathJoin(config.Conf.OvalDBURL, "count", osFamily, release)
+	url, _ := util.URLPathJoin(cnf.Conf.OvalDict.URL, "count", osFamily, release)
 	resp, body, errs := gorequest.New().Get(url).End()
 	if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
-		return false, fmt.Errorf("HTTP GET error: %v, url: %s, resp: %v",
-			errs, url, resp)
+		return false, xerrors.Errorf("HTTP GET error, url: %s, resp: %v, err: %w", url, resp, errs)
 	}
 	count := 0
 	if err := json.Unmarshal([]byte(body), &count); err != nil {
-		return false, fmt.Errorf("Failed to Unmarshall. body: %s, err: %s",
-			body, err)
+		return false, xerrors.Errorf("Failed to Unmarshall. body: %s, err: %w", body, err)
 	}
 	return 0 < count, nil
 }
 
 // CheckIfOvalFresh checks if oval entries are fresh enough
-func (b Base) CheckIfOvalFresh(osFamily, release string) (ok bool, err error) {
-	ovallog.Initialize(config.Conf.LogDir)
+func (b Base) CheckIfOvalFresh(driver db.DB, osFamily, release string) (ok bool, err error) {
 	var lastModified time.Time
-	if !b.isFetchViaHTTP() {
-		var ovaldb db.DB
-		if ovaldb, err = db.NewDB(
-			osFamily,
-			config.Conf.OvalDBType,
-			config.Conf.OvalDBPath,
-			config.Conf.DebugSQL,
-		); err != nil {
-			return false, err
-		}
-		defer ovaldb.CloseDB()
-		lastModified = ovaldb.GetLastModified(osFamily, release)
+	if !cnf.Conf.OvalDict.IsFetchViaHTTP() {
+		lastModified = driver.GetLastModified(osFamily, release)
 	} else {
-		url, _ := util.URLPathJoin(config.Conf.OvalDBURL, "lastmodified", osFamily, release)
+		url, _ := util.URLPathJoin(cnf.Conf.OvalDict.URL, "lastmodified", osFamily, release)
 		resp, body, errs := gorequest.New().Get(url).End()
 		if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
-			return false, fmt.Errorf("HTTP GET error: %v, url: %s, resp: %v",
-				errs, url, resp)
+			return false, xerrors.Errorf("HTTP GET error, url: %s, resp: %v, err: %w", url, resp, errs)
 		}
 
 		if err := json.Unmarshal([]byte(body), &lastModified); err != nil {
-			return false, fmt.Errorf("Failed to Unmarshall. body: %s, err: %s",
-				body, err)
+			return false, xerrors.Errorf("Failed to Unmarshall. body: %s, err: %w", body, err)
 		}
 	}
 
@@ -140,9 +96,4 @@ func (b Base) CheckIfOvalFresh(osFamily, release string) (ok bool, err error) {
 	}
 	util.Log.Infof("OVAL is fresh: %s %s ", osFamily, release)
 	return true, nil
-}
-
-func (b Base) isFetchViaHTTP() bool {
-	// Default value of OvalDBType is sqlite3
-	return config.Conf.OvalDBURL != "" && config.Conf.OvalDBType == "sqlite3"
 }
